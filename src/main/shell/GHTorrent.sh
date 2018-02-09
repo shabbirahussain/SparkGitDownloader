@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# This scripts downloads tar from GHTorrent and extracts only the listed files from it.
+# In case no files are specified it will extract all files.
+# @author: shabbir.ahussain
+#
+
 #    DownloadGhTorrent : () => {
 #        let args = process.argv.slice(3);
 #        if (args.length < 2) {
@@ -44,8 +49,8 @@ show_usage(){
     echo -e "Usage: \n"
     echo -e "\t ${0} tar_name data_dir [file_to_txtract [...]]\n"
     echo -e "Example: \n"
-    echo -e "\t ./GHTorrent.sh mysql-2018-02-01.tar.gz /Users/shabbirhussain/Data/project/ mysql-2018-02-01/projects.csv"
-    echo -e "\t ./GHTorrent.sh mysql-2018-02-01.tar.gz /Users/shabbirhussain/Data/project/ mysql-2018-02-01/commit_comments.csv"
+    echo -e "\t ./GHTorrent.sh mysql-2018-02-01.tar.gz /Users/shabbirhussain/Data/project mysql-2018-02-01/projects.csv"
+    echo -e "\t ./GHTorrent.sh mysql-2018-02-01.tar.gz /Users/shabbirhussain/Data/project mysql-2018-02-01/commit_comments.csv"
 }
 
 if [[ "$#" -lt 2 ]]; then
@@ -85,7 +90,7 @@ curl -S "${GHT_URL}${TAR_NAME}" > "${PIPE}" &
 PID="$!"
 
 # Un-tar required files from tar
-tar -C "${DATA_DIR}" -xvf "${PIPE}" "${FILES[@]}" 2>&1 | head -"${FILES_CNT}" 2> "${CTRL_FILE}" &
+tar -C "${DATA_DIR}" -xvf "${PIPE}" "${FILES[@]}" 2>&1 | head -"${FILES_CNT}" > "${CTRL_FILE}" 2>&1 &
 
 until [[ -s "${CTRL_FILE}" && $(wc -l "${CTRL_FILE}") -ge "${FILES_CNT}" ]]; do
     #echo "sleeping"
