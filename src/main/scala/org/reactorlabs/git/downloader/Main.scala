@@ -1,26 +1,21 @@
 package org.reactorlabs.git.downloader
 
-import java.io.File
 import java.nio.file.Paths
 
+import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.expressions.Window
-import org.reactorlabs.git.downloader.parsers.GHTParser
 import org.reactorlabs.git.downloader.models.Languages
-import org.apache.spark.sql.functions.rank
-import org.apache.log4j._
+import org.reactorlabs.git.downloader.parsers.GHTParser
 
 object Main {
   val spark = SparkSession
     .builder()
     .appName("ReactorLabs Git Miner")
-    .config("spark.ui.showConsoleProgress",true)
     .getOrCreate()
   import spark.implicits._
 
   val sc = spark.sparkContext
-//  sc.setLogLevel("ERROR")
-  sc.setLogLevel("WARN")
+  sc.setLogLevel("ERROR")
 //  Logger.getLogger("org.apache.spark.SparkContext").setLevel(Level.WARN)
   sc.setCheckpointDir("target/temp/spark/")
 
@@ -28,33 +23,28 @@ object Main {
   def main(args: Array[String]): Unit = {
     val csvPath = "/Users/shabbirhussain/Data/project/mysql-2018-02-01/projects_full.csv"
     val opPath = csvPath + "-spark/"
-    deleteRecursively(Paths.get(opPath).toFile)
+    util.deleteRecursively(Paths.get(opPath).toFile)
 
     val parser = new GHTParser(Set(Languages.JavaScript, Languages.TypeScript, Languages.CoffeeScript))
 
-    val projects = spark.read
-      .option("header", "true")       // Use first line of all files as header
-      .option("inferSchema", "false") // Automatically infer data types
-      .textFile(csvPath)
-      .map(parser.parse)
-      .toDF()
-
-
-    val filtered = projects
-      .filter($"isDeleted" === false)
-      .filter($"isCorrupt" === false)
-      .withColumn("rank", rank.over(Window.partitionBy($"projUrl").orderBy($"created" desc)))
-      .filter($"rank" =!= 1 )
-      .rdd
+    getFilteredProjList(csvPath, parser)
+      .map(x=> x._1 + "," + x._2._1 + "," + x._2._5)
       .coalesce(1, shuffle=false)
       .saveAsTextFile(opPath)
   }
 
+  def getFilteredProjList(csvPath: String, parser: GHTParser):
+    RDD[(String, (Int, Boolean, Boolean, Boolean, Long))] = {
 
-  def deleteRecursively(file: File): Unit = {
-    if (file.isDirectory)
-      file.listFiles.foreach(deleteRecursively)
-    if (file.exists && !file.delete)
-      throw new Exception(s"Unable to delete ${file.getAbsolutePath}")
+    spark.read
+      .option("header", "true")       // Use first line of all files as header
+      .option("inferSchema", "false") // Automatically infer data types
+      .textFile(csvPath)
+      .map(parser.parse)
+      .rdd
+      .filter(!_._2._2) // isDeleted == false
+      .filter(!_._2._3) // isForked  == false
+      .filter(!_._2._4) // isCorrput == false
+      .reduceByKey((u, v) => if(u._5 > v._5) u else v) // Keep the latest record
   }
 }

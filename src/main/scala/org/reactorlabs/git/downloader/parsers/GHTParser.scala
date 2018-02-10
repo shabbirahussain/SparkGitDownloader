@@ -11,7 +11,7 @@ class GHTParser(languages:Set[Languages.Value] = Set(JavaScript, TypeScript, Cof
   extends Serializable {
   val df = new SimpleDateFormat("yyy-MM-dd HH:mm:ss")
 
-  def parse(line: String): GHTRecord = {
+  def parse(line: String): (String, (Int, Boolean, Boolean, Boolean, Long)) = {
     try{
       val record = CSVParser
         .parse(line, CSVFormat.RFC4180)
@@ -23,10 +23,10 @@ class GHTParser(languages:Set[Languages.Value] = Set(JavaScript, TypeScript, Cof
       val isForked  = record.get(7) != "\\N"
       val isCorrupt = false
       val created   = df.parse(record.get(6)).getTime
-//      GHTRecord("", -1, false, false, true, 0l)
-      GHTRecord(projUrl, projLang.id, isDeleted, isForked, isCorrupt, created)
+
+      (projUrl, (projLang.id, isDeleted, isForked, isCorrupt, created))
     } catch {
-      case e: Exception => GHTRecord(e.toString, -1, false, false, true, 0l)
+      case e: Exception => (e.toString, (-1, false, false, true, 0l))
     }
   }
 }
