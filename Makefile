@@ -26,12 +26,14 @@ build:
 
 run: build
 	${SPARK_BIN_PATH}spark-submit \
+	 	--conf spark.ui.showConsoleProgress=true \
 	 	--master local --driver-memory 6g \
+	 	--jars "${LIB_PATH}/commons-csv-1.5.jar" \
 		--conf "spark.driver.extraJavaOptions=-Dlog4j.configuration=log4j.properties" \
     	--conf "spark.executor.extraJavaOptions=-Dlog4j.configuration=log4j.properties" \
     	--class org.reactorlabs.git.downloader.Main ${JAR_NAME} ${INPUT_PATH}
 
-setup:
+setup: clean
 	mvn install dependency:copy-dependencies
 
 clean:
