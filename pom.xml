@@ -33,9 +33,6 @@
                         <goals>
                             <goal>copy-dependencies</goal>
                         </goals>
-                        <configuration>
-                            <outputDirectory>${project.build.directory}/artifacts/dependencies</outputDirectory>
-                        </configuration>
                     </execution>
                 </executions>
             </plugin>

@@ -1,14 +1,14 @@
 INPUT_PATH="input/all/"
 
 
-SPARK_BIN_PATH=/Users/shabbirhussain/Apps/spark-2.2.0-bin-hadoop2.7/bin/
+SPARK_BIN_PATH=/Users/shabbirhussain/Apps/spark-2.2.1-bin-hadoop2.7/bin/
 SCALA_BIN_PATH=/usr/local/Cellar/scala@2.11/2.11.11/bin/
 
 # ------------------------------------
 # Do not edit! Local config variables.
 # ------------------------------------
 JAR_NAME="target/artifacts/task.jar"
-LIB_PATH="target/artifacts/dependencies"
+LIB_PATH="target/dependency"
 
 all: run
 
@@ -19,11 +19,11 @@ build:
 		-d target/classes \
 		src/main/scala/org/reactorlabs/git/downloader/**/*.scala \
 		src/main/scala/org/reactorlabs/git/downloader/*.scala
-	cp src/main/resources/* target/classes/
+	cp -r src/main/resources target/classes/
 	jar cvfm ${JAR_NAME} \
 		src/main/scala/META-INF/MANIFEST.MF \
-		-C target/classes/ . \
-		&>/dev/null
+		-C target/classes/ .
+	# &>/dev/null
 
 run: build
 	${SPARK_BIN_PATH}spark-submit \
