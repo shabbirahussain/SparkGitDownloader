@@ -1,46 +1,8 @@
 #!/usr/bin/env bash
-# This scripts downloads tar from GHTorrent and extracts only the listed files from it.
-# In case no files are specified it will extract all files.
+# This scripts downloads tar from GHTorrent and extracts only the listed files from it. In case no files are
+# specified it will extract all files.
+#
 # @author: shabbir.ahussain
-#
-
-#    DownloadGhTorrent : () => {
-#        let args = process.argv.slice(3);
-#        if (args.length < 2) {
-#            console.log("Invalid number of arguments");
-#            console.log("see README.md");
-#            process.exit(-1);
-#        }
-#        let name = args[0]
-#        let outputDir = args[1];
-#        if (!outputDir.endsWith("/"))
-#            outputDir += "/";
-#        let discardData = false;
-#        for (let i = 2; i < args.length; ++i) {
-#            if (args[i] == "--discard-data") {
-#                discardData = true;
-#            } else {
-#                console.log("unknown argument: " + args[i]);
-#                console.log("see README.md");
-#                process.exit(-1);
-#            }
-#        }
-#        console.log("ghtorrent.name = " + name);
-#        console.log("ghtorrent.outputDir = " + outputDir);
-#        console.log("ghtorrent.keepData = " + discardData);
-#
-#        mkdirp.sync(outputDir + name);
-#        console.log("downloading ghtorrent dump...")
-#        let dumpFile = outputDir + name + "/ghtorrent.tar.gz";
-#        child_process.execSync("curl -S http://ghtorrent-downloads.ewi.tudelft.nl/mysql/mysql-"+ name + ".tar.gz > " + dumpFile);
-#        console.log("extracting projects table...");
-#        child_process.execSync("tar --extract --to-stdout --file=" + dumpFile + " mysql-" + name + "/projects.csv > " + outputDir + name + "/projects.csv");
-#        if (discardData) {
-#            console.log("deleting the snapshot...");
-#            child_process.execSync("rm -f " + dumpFile);
-#        }
-#        console.log("DONE.");
-#    }
 
 GHT_URL="http://ghtorrent-downloads.ewi.tudelft.nl/mysql/"
 CTRL_FILE="GHTorrent.ctrl"
@@ -68,9 +30,6 @@ FILES=( "${FILES[@]:2}" )
 
 FILES_CNT=$(expr "$#" - 2)
 
-echo "${FILES[@]}"
-echo "${CTRL_FILE}"
-
 set -e
 trap 'kill $(jobs -p) 2> /dev/null' EXIT
 
@@ -92,9 +51,10 @@ PID="$!"
 # Un-tar required files from tar
 tar -C "${DATA_DIR}" -xvf "${PIPE}" "${FILES[@]}" 2>&1 | head -"${FILES_CNT}" > "${CTRL_FILE}" 2>&1 &
 
-until [[ -s "${CTRL_FILE}" && $(wc -l "${CTRL_FILE}") -ge "${FILES_CNT}" ]]; do
-    #echo "sleeping"
+# Wait for the required files to be found in the tar
+until [[ -s "${CTRL_FILE}" && $(wc -l "${CTRL_FILE}" | cut -d' ' -f 8) -ge "${FILES_CNT}" ]]; do
     sleep 10s
 done
 
-kill "${PID}"
+echo -e "\nFound required files from tar. Interrupting download!!"
+kill "${PID}" 2> /dev/null
