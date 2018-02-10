@@ -5,7 +5,9 @@ import java.text.SimpleDateFormat
 import org.reactorlabs.git.downloader.models.{GHTRecord, Languages}
 import org.reactorlabs.git.downloader.models.Languages._
 
-class GHTParser(languages:Set[Languages.Value] = Set(JavaScript, TypeScript, CoffeeScript)) {
+@SerialVersionUID(100L)
+class GHTParser(languages:Set[Languages.Value] = Set(JavaScript, TypeScript, CoffeeScript))
+  extends Serializable {
   val df = new SimpleDateFormat("yyy-MM-dd HH:mm:ss")
 
   def parse(line: String): GHTRecord = {
