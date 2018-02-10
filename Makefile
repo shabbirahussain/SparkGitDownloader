@@ -8,17 +8,17 @@ SCALA_BIN_PATH=/usr/local/Cellar/scala@2.11/2.11.11/bin/
 # Do not edit! Local config variables.
 # ------------------------------------
 JAR_NAME="target/artifacts/task.jar"
-LIB_PATH="target/dependencies"
+LIB_PATH="target/artifacts/dependencies"
 
-all: clean run report
+all: run
 
 build:
 	mkdir -p "target/artifacts"
 	mkdir -p "target/classes/main/resources/"
 	${SCALA_BIN_PATH}scalac -cp "./${LIB_PATH}/*" \
 		-d target/classes \
-		src/main/scala/org/neu/pdpmr/tasks/**/*.scala \
-		src/main/scala/org/neu/pdpmr/tasks/*.scala
+		src/main/scala/org/reactorlabs/git/downloader/**/*.scala \
+		src/main/scala/org/reactorlabs/git/downloader/*.scala
 	cp src/main/resources/* target/classes/
 	jar cvfm ${JAR_NAME} \
 		src/main/scala/META-INF/MANIFEST.MF \
@@ -30,14 +30,11 @@ run: build
 	 	--master local --driver-memory 6g \
 		--conf "spark.driver.extraJavaOptions=-Dlog4j.configuration=log4j.properties" \
     	--conf "spark.executor.extraJavaOptions=-Dlog4j.configuration=log4j.properties" \
-    	--class org.neu.pdpmr.tasks.Main ${JAR_NAME} ${INPUT_PATH}
+    	--class org.reactorlabs.git.downloader.Main ${JAR_NAME} ${INPUT_PATH}
 
 setup:
-	mvn -X install dependency:copy
+	mvn install dependency:copy-dependencies
 
-
-report:
-	Rscript -e "rmarkdown::render('Report.Rmd')"
 
 clean:
 	-rm -rf target/*
