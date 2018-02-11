@@ -15,6 +15,12 @@ show_usage(){
     echo -e "\t ./GHTorrent.sh mysql-2018-02-01.tar.gz /Users/shabbirhussain/Data/project mysql-2018-02-01/commit_comments.csv"
 }
 
+cleanup(){
+    echo -e "\nCleaning up background jobs..."
+    kill $(jobs -p) 2> /dev/null
+    echo -e "Done."
+}
+
 if [[ "$#" -lt 2 ]]; then
     echo -e "Error: Invalid number of arguments" >&2
     show_usage
@@ -31,13 +37,7 @@ FILES=( "${FILES[@]:2}" )
 FILES_CNT=$(expr "$#" - 2)
 
 set -e
-trap 'kill $(jobs -p) 2> /dev/null' EXIT
-
-# Create a pipe
-PIPE=$(mktemp)
-rm "${PIPE}"
-mkfifo "${PIPE}"
-
+trap 'cleanup' EXIT
 
 # Create data directory
 [ -d "${DATA_DIR}" ] || mkdir "${DATA_DIR}"
@@ -45,11 +45,9 @@ cd "${DATA_DIR}"
 
 # Download tar
 echo -e "Starting download..."
-curl -S "${GHT_URL}${TAR_NAME}" > "${PIPE}" &
-PID="$!"
-
-# Un-tar required files from tar
-tar -C "${DATA_DIR}" -xvf "${PIPE}" "${FILES[@]}" 2>&1 | head -"${FILES_CNT}" > "${CTRL_FILE}" 2>&1 &
+curl -S "${GHT_URL}${TAR_NAME}" | \
+    tar -C "${DATA_DIR}" -xv "${FILES[@]}" 2>&1 | \
+    head -"${FILES_CNT}" > "${CTRL_FILE}"  2>&1 &
 
 # Wait for the required files to be found in the tar
 until [[ -s "${CTRL_FILE}" && $(wc -l "${CTRL_FILE}" | cut -d' ' -f 8) -ge "${FILES_CNT}" ]]; do
@@ -57,4 +55,3 @@ until [[ -s "${CTRL_FILE}" && $(wc -l "${CTRL_FILE}" | cut -d' ' -f 8) -ge "${FI
 done
 
 echo -e "\nFound required files from tar. Interrupting download!!"
-kill "${PID}" 2> /dev/null
