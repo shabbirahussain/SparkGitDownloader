@@ -16,6 +16,7 @@ build:
 	mkdir -p "target/classes/main/resources/"
 	${SCALA_BIN_PATH}scalac -cp "./${LIB_PATH}/*" \
 		-d target/classes \
+		src/main/scala/org/reactorlabs/git/**/**/*.scala \
 		src/main/scala/org/reactorlabs/git/**/*.scala \
 		src/main/scala/org/reactorlabs/git/*.scala
 	cp -r src/main/resources/* target/classes/

@@ -1,4 +1,4 @@
-package org.reactorlabs.git.models
+package org.reactorlabs.git.ghtorrent.models
 
 /**
   * @param projUrl is the project URL as string.

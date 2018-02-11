@@ -1,10 +1,10 @@
-package org.reactorlabs.git.parsers
+package org.reactorlabs.git.ghtorrent
 
 import java.text.SimpleDateFormat
 
 import org.apache.commons.csv.{CSVFormat, CSVParser}
-import org.reactorlabs.git.models.Languages._
-import org.reactorlabs.git.models.Languages
+import org.reactorlabs.git.ghtorrent.models.Languages
+import org.reactorlabs.git.ghtorrent.models.Languages._
 
 /** This parser will only produce records that have valid language.
   * On any errors in parsing it will set error flag to true.

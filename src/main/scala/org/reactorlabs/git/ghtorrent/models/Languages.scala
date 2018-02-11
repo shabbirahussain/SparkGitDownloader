@@ -1,4 +1,4 @@
-package org.reactorlabs.git.models
+package org.reactorlabs.git.ghtorrent.models
 
 /**
   * @author shabbir.ahussain
