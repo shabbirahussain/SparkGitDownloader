@@ -14,7 +14,11 @@ import scala.io.Source
   *
   * @author shabbir.ahussain
   */
-class ProjectFilters(filters: Set[String], repoPath: String, blacklistPath: String) {
+@SerialVersionUID(100L)
+class ProjectFilters(filters: Set[String],
+                     repoPath: String,
+                     blacklistPath: String)
+  extends Serializable {
   private val repoDir = Paths.get(repoPath).toFile
   if (! repoDir.exists()) repoDir.mkdirs()
 
@@ -31,7 +35,7 @@ class ProjectFilters(filters: Set[String], repoPath: String, blacklistPath: Stri
 
   private def filterCorrupt(rdd: RDD[(String, (Int, Boolean, Boolean, Boolean, Long))]):
     RDD[(String, (Int, Boolean, Boolean, Boolean, Long))] = {
-    rdd.filter(!_._2._3)
+    rdd.filter(!_._2._4)
   }
 
   private def filterDeleted(rdd: RDD[(String, (Int, Boolean, Boolean, Boolean, Long))]):
@@ -46,7 +50,7 @@ class ProjectFilters(filters: Set[String], repoPath: String, blacklistPath: Stri
 
   private def filterExisting(rdd: RDD[(String, (Int, Boolean, Boolean, Boolean, Long))]):
     RDD[(String, (Int, Boolean, Boolean, Boolean, Long))] = {
-    rdd.filter(x=> Paths.get(repoDir.getAbsolutePath + x._1).toFile.exists)
+    rdd.filter(x=> !Paths.get(repoDir.getAbsolutePath + x._1).toFile.exists)
   }
 
   private def filterBlacklist(rdd: RDD[(String, (Int, Boolean, Boolean, Boolean, Long))]):

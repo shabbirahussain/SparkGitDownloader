@@ -29,7 +29,7 @@ run: build
 	 	--jars "${LIB_PATH}/commons-csv-1.5.jar" \
 	 	--files target/artifacts/log4j.properties \
 		--conf spark.driver.extraJavaOptions=-Dlog4j.configuration=log4j.properties \
-    	--class org.reactorlabs.git.downloader.Main "${JAR_NAME}" "${INPUT_PATH}"
+    	--class org.reactorlabs.git.Main "${JAR_NAME}" "${INPUT_PATH}"
 
 setup: clean
 	mvn install dependency:copy-dependencies
