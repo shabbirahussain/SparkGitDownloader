@@ -1,7 +1,10 @@
-package org.reactorlabs.git.downloader
+package org.reactorlabs.git
 
 import java.io.File
 
+/**
+  * @author shabbir.ahussain
+  */
 package object util {
   def deleteRecursively(file: File): Unit = {
     if (file.isDirectory)

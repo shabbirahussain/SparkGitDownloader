@@ -1,11 +1,18 @@
-package org.reactorlabs.git.downloader.parsers
+package org.reactorlabs.git.parsers
 
 import java.text.SimpleDateFormat
 
 import org.apache.commons.csv.{CSVFormat, CSVParser}
-import org.reactorlabs.git.downloader.models.{GHTRecord, Languages}
 import org.reactorlabs.git.downloader.models.Languages._
+import org.reactorlabs.git.models.Languages
 
+/** This parser will only produce records that have valid language.
+  * On any errors in parsing it will set error flag to true.
+  *
+  * @param languages is the set of Languages as defined in the emum.
+  *
+  * @author shabbir.ahussain
+  */
 @SerialVersionUID(100L)
 class GHTParser(languages:Set[Languages.Value] = Set(JavaScript, TypeScript, CoffeeScript))
   extends Serializable {
