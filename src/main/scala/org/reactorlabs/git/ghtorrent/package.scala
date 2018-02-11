@@ -4,20 +4,22 @@ import java.nio.file.Paths
 
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
-import org.reactorlabs.git.Main.{sc, spark}
+import org.apache.log4j.Level
+import org.reactorlabs.git.Main.{sc, spark, prop, logger}
 import org.reactorlabs.git.ghtorrent.models.Languages
+
 import sys.process._
 
 package object ghtorrent {
-  val ghtRepoPath: String = "/Users/shabbirhussain/Data/project"
-  val gitRepoPath: String = "/Users/shabbirhussain/Data/project/mysql-2018-02-01/git"
-  val name: String = "mysql-2018-02-01"
-  val blacklistPath = "/Users/shabbirhussain/Data/project/mysql-2018-02-01/blacklist.csv"
-  val filters = Set("filterDeleted", "filterForked", "filterExisting", "filterBlacklist", "filterTop100000")
-  val ghtDownloaderPath = "/Users/shabbirhussain/Documents/workspace/Project/SparkGitDownloader/src/main/shell/GHTorrent.sh"
+  private val ghtTarName        = prop.getProperty("ghtorrent.archive.name")
+  private val ghtRepoPath       = prop.getProperty("ghtorrent.repo.path")
+  private val ghtDownloaderPath = prop.getProperty("ghtorrent.downloader.path")
+  private val gitRepoPath       = prop.getProperty("git.repo.path")
+  private val blacklistPath     = prop.getProperty("git.blacklist.path")
+  private val ghtProjFilters    = prop.getProperty("ghtorrent.project.filters").split(",").map(_.trim).toSet
 
-  private val ghtProjectsFile  = ghtRepoPath + "/" + name + "/Projects.csv"
-  private val ghtProjectsCache = ghtRepoPath + "/" + name + "/Projects.cache"
+  private val ghtProjectsFile  = ghtRepoPath + "/" + ghtTarName + "/projects.csv"
+  private val ghtProjectsCache = ghtRepoPath + "/" + ghtTarName + "/projects.cache"
   private val parser = sc.broadcast(new GHTParser(Set(Languages.JavaScript, Languages.TypeScript, Languages.CoffeeScript)))
 
   import spark.implicits._
@@ -28,21 +30,23 @@ package object ghtorrent {
     */
   def getProjectList(): RDD[String] = {
     if (!Paths.get(ghtProjectsCache).toFile.exists()){
+      logger.log(Level.INFO, "No project cache found. Generating new cache...")
       if (!Paths.get(ghtProjectsFile).toFile.exists()){
-        downloadProjectsList(name + ".tar.gz")
+        logger.log(Level.INFO, "No project.csv found. Downloading from GHTorrent...")
+        downloadProjectsList()
       }
       saveProjectList(loadRawProjectList(ghtProjectsFile, parser), ghtProjectsCache)
     }
+    logger.log(Level.INFO, "Loading from project cache and applying filters...")
     applyFilters(loadCachedProjectList(ghtProjectsCache))
   }
-
 
   /**
     * Downloads projects.csv from GHTorrent.
     */
   private def downloadProjectsList(): Unit = {
-    val cmd = ghtDownloaderPath + " " + name + ".tar.gz " + ghtRepoPath + " " + name + "/projects.csv"
-    println("$ " + cmd)
+    val cmd = ghtDownloaderPath + " " + ghtTarName + ".tar.gz " + ghtRepoPath + " " + ghtTarName + "/projects.csv"
+    logger.log(Level.DEBUG, "$ " + cmd)
     cmd !
   }
 
@@ -62,10 +66,10 @@ package object ghtorrent {
       .rdd
 
     res = ProjectFilters.filterCorrupt(res)
-    if (filters.contains("filterDeleted"))  res = ProjectFilters.filterDeleted(res)
-    if (filters.contains("filterForked"))   res = ProjectFilters.filterForked(res)
+    if (ghtProjFilters.contains("filterDeleted"))  res = ProjectFilters.filterDeleted(res)
+    if (ghtProjFilters.contains("filterForked"))   res = ProjectFilters.filterForked(res)
 
-    val n = (filters + "filterTop-1").filter(_.startsWith("filterTop"))
+    val n = (ghtProjFilters + "filterTop-1").filter(_.startsWith("filterTop"))
         .map(x=>try {x.substring(9).toInt} catch{case _:Exception=> -1}).max
     if (n > -1)                             res = ProjectFilters.filterTopN(res, n)
 
@@ -95,8 +99,8 @@ package object ghtorrent {
   private def applyFilters(rdd: RDD[String]):
     RDD[String] = {
     var res = rdd
-    if (filters.contains("filterExisting")) res = ProjectFilters.filterExisting(res, gitRepoPath)
-    if (filters.contains("filterBlacklist"))res = ProjectFilters.filterBlacklist(res, blacklistPath)
+    if (ghtProjFilters.contains("filterExisting")) res = ProjectFilters.filterExisting(res, gitRepoPath)
+    if (ghtProjFilters.contains("filterBlacklist"))res = ProjectFilters.filterBlacklist(res, blacklistPath)
     res
   }
 }
