@@ -16,17 +16,16 @@ build:
 	mkdir -p "target/classes/main/resources/"
 	${SCALA_BIN_PATH}scalac -cp "./${LIB_PATH}/*" \
 		-d target/classes \
-		src/main/scala/org/reactorlabs/git/downloader/**/*.scala \
-		src/main/scala/org/reactorlabs/git/downloader/*.scala
+		src/main/scala/org/reactorlabs/git/**/*.scala \
+		src/main/scala/org/reactorlabs/git/*.scala
 	cp -r src/main/resources/* target/classes/
 	jar cvfm ${JAR_NAME} \
 		src/main/scala/META-INF/MANIFEST.MF \
-		-C target/classes/ .
-	# &>/dev/null
+		-C target/classes/ . &>/dev/null
 
 run: build
 	${SPARK_BIN_PATH}spark-submit \
-	 	--master local --driver-memory 7g \
+	 	--master local --driver-memory 5g \
 	 	--jars "${LIB_PATH}/commons-csv-1.5.jar" \
 	 	--files target/artifacts/log4j.properties \
 		--conf spark.driver.extraJavaOptions=-Dlog4j.configuration=log4j.properties \

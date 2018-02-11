@@ -3,7 +3,7 @@ package org.reactorlabs.git.parsers
 import java.text.SimpleDateFormat
 
 import org.apache.commons.csv.{CSVFormat, CSVParser}
-import org.reactorlabs.git.downloader.models.Languages._
+import org.reactorlabs.git.models.Languages._
 import org.reactorlabs.git.models.Languages
 
 /** This parser will only produce records that have valid language.
