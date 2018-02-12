@@ -16,10 +16,11 @@ build:
 	mkdir -p "target/classes/main/resources/"
 	${SCALA_BIN_PATH}scalac -cp "./${LIB_PATH}/*" \
 		-d target/classes \
-		src/main/scala/org/reactorlabs/git/**/**/*.scala \
-		src/main/scala/org/reactorlabs/git/**/*.scala \
-		src/main/scala/org/reactorlabs/git/*.scala
-	cp -r src/main/resources/* target/classes/
+		src/main/scala/org/reactorlabs/jshealth/**/**/*.scala \
+		src/main/scala/org/reactorlabs/jshealth/**/*.scala \
+		src/main/scala/org/reactorlabs/jshealth/*.scala
+	cp -r src/main/resources/* target/classes
+	cp src/main/shell/GHTorrent.sh target/classes
 	jar cvfm ${JAR_NAME} \
 		src/main/scala/META-INF/MANIFEST.MF \
 		-C target/classes/ . &>/dev/null
@@ -28,9 +29,7 @@ run: build
 	${SPARK_BIN_PATH}spark-submit \
 	 	--master local --driver-memory 5g \
 	 	--jars "${LIB_PATH}/commons-csv-1.5.jar" \
-	 	--files target/artifacts/log4j.properties \
-		--conf spark.driver.extraJavaOptions=-Dlog4j.configuration=log4j.properties \
-    	--class org.reactorlabs.git.Main "${JAR_NAME}" "${INPUT_PATH}"
+    	--class org.reactorlabs.jshealth.Main "${JAR_NAME}" "${INPUT_PATH}"
 
 setup: clean
 	mvn install dependency:copy-dependencies

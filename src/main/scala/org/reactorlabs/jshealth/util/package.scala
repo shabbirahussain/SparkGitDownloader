@@ -1,4 +1,4 @@
-package org.reactorlabs.git
+package org.reactorlabs.jshealth
 
 import java.io.File
 

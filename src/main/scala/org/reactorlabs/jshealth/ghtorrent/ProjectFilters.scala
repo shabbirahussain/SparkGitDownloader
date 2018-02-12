@@ -1,4 +1,4 @@
-package org.reactorlabs.git.ghtorrent
+package org.reactorlabs.jshealth.ghtorrent
 
 import java.nio.file.Paths
 
@@ -33,7 +33,7 @@ object ProjectFilters{
 
   def filterExisting(rdd: RDD[String], repoPath: String):
     RDD[String] = {
-    rdd.filter(x=> !Paths.get(Paths.get(repoPath).toAbsolutePath + x).toFile.exists)
+    rdd.filter(x=> !Paths.get(Paths.get(repoPath).toAbsolutePath + "/" + x + "/_SUCCESS").toFile.exists)
   }
 
   def filterBlacklist(rdd: RDD[String], blacklistPath: String):

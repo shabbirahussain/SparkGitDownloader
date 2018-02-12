@@ -1,12 +1,15 @@
-package org.reactorlabs.git
+package org.reactorlabs.jshealth
 
-import java.nio.file.Paths
+import java.io.File
+import java.nio.file.{Files, Paths}
+import java.nio.file.attribute.PosixFilePermission
 
+import org.apache.commons.io.FileUtils
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.log4j.Level
-import org.reactorlabs.git.Main.{sc, spark, prop, logger}
-import org.reactorlabs.git.ghtorrent.models.Languages
+import org.reactorlabs.jshealth.Main.{logger, prop, sc, spark}
+import org.reactorlabs.jshealth.ghtorrent.models.Languages
 
 import sys.process._
 
@@ -18,8 +21,9 @@ package object ghtorrent {
   private val blacklistPath     = prop.getProperty("git.blacklist.path")
   private val ghtProjFilters    = prop.getProperty("ghtorrent.project.filters").split(",").map(_.trim).toSet
 
-  private val ghtProjectsFile  = ghtRepoPath + "/" + ghtTarName + "/projects.csv"
-  private val ghtProjectsCache = ghtRepoPath + "/" + ghtTarName + "/projects.cache"
+  private val ghtProjectsName  = ghtTarName + "/projects.csv"
+  private val ghtProjectsFile  = ghtRepoPath + "/" + ghtProjectsName
+  private val ghtProjectsCache = ghtRepoPath + "/" + ghtProjectsName + ".cache/"
   private val parser = sc.broadcast(new GHTParser(Set(Languages.JavaScript, Languages.TypeScript, Languages.CoffeeScript)))
 
   import spark.implicits._
@@ -45,7 +49,24 @@ package object ghtorrent {
     * Downloads projects.csv from GHTorrent.
     */
   private def downloadProjectsList(): Unit = {
-    val cmd = ghtDownloaderPath + " " + ghtTarName + ".tar.gz " + ghtRepoPath + " " + ghtTarName + "/projects.csv"
+    // Create a temp sh script
+    val stream  = this.getClass.getClassLoader.getResourceAsStream(ghtDownloaderPath)
+    val ghtFile = File.createTempFile(ghtDownloaderPath, ".sh")
+    ghtFile.deleteOnExit()
+    FileUtils.copyInputStreamToFile(stream, ghtFile)
+    if (stream != null) stream.close()
+
+    // Make it executable
+    val perms = new java.util.HashSet[PosixFilePermission]()
+    perms.add(PosixFilePermission.OWNER_EXECUTE)
+    perms.add(PosixFilePermission.OWNER_READ)
+    Files.setPosixFilePermissions(ghtFile.toPath, perms)
+
+    val cmd = ghtFile.getAbsolutePath + " " +
+      ghtTarName + ".tar.gz " +
+      ghtRepoPath + " " +
+      ghtProjectsName
+
     logger.log(Level.DEBUG, "$ " + cmd)
     cmd !
   }
