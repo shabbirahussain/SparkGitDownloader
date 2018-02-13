@@ -8,8 +8,10 @@ SCALA_BIN_PATH=/usr/local/Cellar/scala@2.11/2.11.11/bin/
 # ------------------------------------
 JAR_NAME="target/artifacts/task.jar"
 LIB_PATH="target/dependency"
+RUNTIME_JARS="${LIB_PATH}/commons-csv-1.5.jar,${LIB_PATH}/sangria_2.11-1.3.3.jar,${LIB_PATH}/parboiled_2.11-2.1.4.jar"
 
-all: run
+
+all: clean setup build run
 
 build:
 	mkdir -p "target/artifacts"
@@ -25,13 +27,13 @@ build:
 		src/main/scala/META-INF/MANIFEST.MF \
 		-C target/classes/ . &>/dev/null
 
-run: build
+run:
 	${SPARK_BIN_PATH}spark-submit \
 	 	--master local --driver-memory 5g \
-	 	--jars "${LIB_PATH}/commons-csv-1.5.jar" \
+	 	--jars "${RUNTIME_JARS}" \
     	--class org.reactorlabs.jshealth.Main "${JAR_NAME}" "${INPUT_PATH}"
 
-setup: clean
+setup:
 	mvn install dependency:copy-dependencies
 
 clean:

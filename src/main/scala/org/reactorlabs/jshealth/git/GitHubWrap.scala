@@ -20,9 +20,11 @@ class GitHubWrap(extensions: Set[String],
 
   }
 
-//  def listFiles(url: String): Seq[String] = {
-//
-//  }
+  def listFiles(url: String, branch: String): Seq[String] = {
+    val fullUrl = Paths.get(gitBaseUrl + "/" + url)
+    Seq()
+
+  }
 
   private def fetchProject(url: String): Unit = {
 

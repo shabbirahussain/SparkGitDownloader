@@ -38,6 +38,7 @@ object Main {
   def main(args: Array[String]): Unit = {
     ghtorrent.getProjectList()
   }
+  test
 
 
 }
