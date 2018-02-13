@@ -6,10 +6,14 @@ SCALA_BIN_PATH=/usr/local/Cellar/scala@2.11/2.11.11/bin/
 # ------------------------------------
 # Do not edit! Local config variables.
 # ------------------------------------
-JAR_NAME="target/artifacts/task.jar"
-LIB_PATH="target/dependency"
-RUNTIME_JARS="${LIB_PATH}/commons-csv-1.5.jar,${LIB_PATH}/sangria_2.11-1.3.3.jar,${LIB_PATH}/parboiled_2.11-2.1.4.jar"
+JAR_NAME=target/artifacts/task.jar
+LIB_PATH=target/dependency
+RUNTIME_JARS=commons-csv-1.5.jar,sangria_2.11-1.3.3.jar,parboiled_2.11-2.1.4.jar
 
+
+
+COMMA=,
+FULL_RUNTIME_JARS=${LIB_PATH}/$(subst ${COMMA},${COMMA}${LIB_PATH}/,${RUNTIME_JARS})
 
 all: clean setup build run
 
@@ -30,7 +34,7 @@ build:
 run:
 	${SPARK_BIN_PATH}spark-submit \
 	 	--master local --driver-memory 5g \
-	 	--jars "${RUNTIME_JARS}" \
+	 	--jars "${FULL_RUNTIME_JARS}" \
     	--class org.reactorlabs.jshealth.Main "${JAR_NAME}" "${INPUT_PATH}"
 
 setup:
