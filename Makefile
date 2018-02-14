@@ -8,8 +8,7 @@ SCALA_BIN_PATH=/usr/local/Cellar/scala@2.11/2.11.11/bin/
 # ------------------------------------
 JAR_NAME=target/artifacts/task.jar
 LIB_PATH=target/dependency
-RUNTIME_JARS=commons-csv-1.5.jar,sangria_2.11-1.3.3.jar,parboiled_2.11-2.1.4.jar
-
+RUNTIME_JARS=commons-csv-1.5.jar
 
 
 COMMA=,
