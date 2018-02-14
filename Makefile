@@ -30,7 +30,7 @@ build:
 		src/main/scala/META-INF/MANIFEST.MF \
 		-C target/classes/ . &>/dev/null
 
-run:
+run: build
 	${SPARK_BIN_PATH}spark-submit \
 	 	--master local --driver-memory 5g \
 	 	--jars "${FULL_RUNTIME_JARS}" \

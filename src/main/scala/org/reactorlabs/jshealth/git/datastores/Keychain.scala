@@ -1,6 +1,9 @@
-package org.reactorlabs.jshealth.git.models
+package org.reactorlabs.jshealth.git.datastores
+
+import org.apache.log4j.Level
 
 import scala.collection.mutable
+import org.reactorlabs.jshealth.Main.logger
 
 /** Manages keys to satisfy the rate limit.
   *
@@ -14,7 +17,7 @@ class Keychain(keyFilePath: String) {
 
   try{
     val source = scala.io.Source.fromFile(keyFilePath)
-    source.getLines.map(x=> available += x )
+    source.getLines.foreach(x=>available += x)
     source.close()
     if (available.isEmpty) throw new Exception("No auth keys found at: " + keyFilePath)
   } catch {case e: Exception => throw e}
@@ -24,22 +27,34 @@ class Keychain(keyFilePath: String) {
   /**
     * @return Gets time in ms till a new key is available.
     */
-  def getMinCooldownTime: Long = cooldownQ.head._2
+  def getMinCooldownTime: Long = {
+    if (available.nonEmpty) return 0
+    if (cooldownQ.isEmpty)  {
+      val msg = "No usable git api keys found."
+      logger.log(Level.FATAL, msg)
+      throw new Exception(msg)
+    }
+    cooldownQ.head._2
+  }
 
   /** Gets the next available key from the keychain.
     *
     * @param key is the current key if used by client. Null is accepted if client is requesting key for the first time.
     * @param remaining is the X-RateLimit-Remaining for the key. (optional)
     * @param reset is the X-RateLimit-Reset for the key. (optional)
+    * @param isValid indicates if previously used key was a valid key or not. (optional)
     * @return a key to use for next request.
     */
-  def getNextKey(key: String, remaining: Int = 5000, reset: Long = 0): String = {
-    if (remaining <= 0){
+  def getNextKey(key: String, remaining: Int = 0, reset: Long = 0, isValid: Boolean = true): String = {
+    if (!isValid) {
+      available -= key
+    } else {
+      if (remaining > 0) return key
+
       available -= key
       cooldownQ += (key -> reset)
-      return getNewKey
     }
-    key
+    getNewKey
   }
 
   /**
@@ -47,12 +62,12 @@ class Keychain(keyFilePath: String) {
     */
   private def getNewKey: String = {
     if (available.isEmpty){
-      // Push keys from cooldown to available.
+      // Push keys from cooldown to available list.
       while(cooldownQ.nonEmpty && cooldownQ.head._2 < System.currentTimeMillis) {
         available += cooldownQ.dequeue._1
       }
     }
-
+    println("available="+available)
     // Return a random key from available keys.
     if (available.nonEmpty){
       return available(rnd.nextInt(available.length))
