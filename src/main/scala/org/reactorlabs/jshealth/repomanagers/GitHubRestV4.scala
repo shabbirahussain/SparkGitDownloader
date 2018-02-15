@@ -105,11 +105,12 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
   }
 
   override def listFiles(url: String): Seq[FileHashTuple] = {
+    println(url)
     val parts = url.split("/")
     val owner = parts(0)
     val repo  = parts(1)
     val branch= parts(2).split(":")(0)
-    val path  = branch + ":"  + url.split(":")(1)
+    val path  = branch + ":"  + (if(url.endsWith(":")) "" else url.split(":")(1))
 
     val query = Query(
       """{
@@ -131,6 +132,11 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
     val jObj = new org.json.JSONObject(str)
 
     var res = Seq[FileHashTuple]()
+
+
+    println(query)
+    println(jObj)
+
     try{
       val entries = jObj.getJSONObject("data")
         .getJSONObject("repository")
@@ -140,7 +146,7 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
       res = (0 until entries.length).map(i => {
         val entry = entries.getJSONObject(i)
 
-        val objUrl  = url + "/" +entry.getString("name")
+        val objUrl  = url + (if (url.endsWith(":")) "" else "/") + entry.getString("name")
         val objId   = entry.getString("oid")
         val objType = entry.getString("type")
 

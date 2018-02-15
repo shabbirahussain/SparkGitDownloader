@@ -14,6 +14,7 @@ class LocalStore() extends DataStore {
     * @param batchSize is the size of the batches to use.
     */
   private def execInBatch(sqls: RDD[String], batchSize: Int= 1000): Unit = {
+    //sqls.foreach(println)
     sqls
       .mapPartitions(_.grouped(batchSize))
       .foreach(batch => {
@@ -25,7 +26,7 @@ class LocalStore() extends DataStore {
   }
 
   // ================ API Methods ===================
-  override def markReposCompleted(token: String, errorRepo: RDD[(String, String)] = null): Unit = {
+  override def markReposCompleted(token: Long, errorRepo: RDD[(String, String)] = null): Unit = {
     val connection = getNewDBConnection
     connection
       .createStatement
@@ -34,55 +35,53 @@ class LocalStore() extends DataStore {
           |UPDATE REPOS_QUEUE
           |   SET COMPLETED   = TRUE,
           |       CHECKOUT_ID = NULL
-          |WHERE CHECKOUT_ID  = '%s';
+          |WHERE CHECKOUT_ID  = '%d';
         """.stripMargin.format(token)) // todo: Unsafe. prone to sql injection
 
     // Update errors to the database.
-    if (errorRepo != null){
-      execInBatch(errorRepo
-        .map(row =>{
-            val split = row._1.split(":")
-              """
-                |UPDATE REPOS_QUEUE
-                |   SET RESULT = %s
-                |WHERE REPOSITORY   = '%s'
-                |  AND BRANCH       = '%s';
-              """.stripMargin.format(row._2, split(0), split(1))
-          })
-      )
-    }
+//    if (errorRepo != null){
+//      execInBatch(errorRepo
+//        .map(row =>{
+//            val split = row._1.split(":")
+//              """
+//                |UPDATE REPOS_QUEUE
+//                |   SET RESULT = %s
+//                |WHERE REPOSITORY   = '%s'
+//                |  AND BRANCH       = '%s';
+//              """.stripMargin.format(row._2, split(0), split(1))
+//          })
+//      )
+//    }
   }
 
   override def checkoutReposToCrawl(limit: Int = 1000): (RDD[String], Long) = {
-    println(dbConnOptions)
     val rdd = spark.sqlContext
       .read
       .format("jdbc")
       .options(dbConnOptions)
       .option("dbtable", "REPOS_QUEUE")
       .load()
-      .select($"REPOSITORY" + ":" + $"BRANCH")
+      .select($"REPOSITORY", $"BRANCH")
       .filter($"COMPLETED" === false)
+      .filter($"CHECKOUT_ID" isNull)
       .limit(limit)
       .rdd
-      .map[String](x=> x.get(0).toString)
 
     val token = System.currentTimeMillis()
 
     // Set checkout timestamp
     execInBatch(
       rdd.map(row =>{
-          val split = row.split(":")
             """
               |UPDATE REPOS_QUEUE
               |   SET CHECKOUT_ID = %d
               |WHERE REPOSITORY   = '%s'
               |  AND BRANCH       = '%s';
-            """.stripMargin.format(token, split(0), split(1))
+            """.stripMargin.format(token, row.get(0), row.get(1))
         })
     )
 
-    (rdd, token)
+    (rdd.map[String](x=> x.get(0) + "/" + x.get(1) + ":"), token)
   }
 
   override def store(fht: RDD[FileHashTuple]): Unit = {

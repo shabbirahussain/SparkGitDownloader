@@ -4,6 +4,7 @@ import java.nio.file.Paths
 
 import org.reactorlabs.jshealth.Main.{logger, prop, sc, spark}
 import org.reactorlabs.jshealth.datastores.{DataStore, LocalStore}
+import org.reactorlabs.jshealth.models.{FileHashTuple, FileTypes}
 import org.reactorlabs.jshealth.repomanagers.{GitHubRestV4, RepoManager}
 
 object Main {
@@ -19,19 +20,41 @@ object Main {
   private val dataStore: DataStore = new LocalStore()
 
 
-  def getFileHeads(): Unit = {
-    val (repos, token) = dataStore.checkoutReposToCrawl(2)
+  def crawlFileHeads(): Unit = {
+    def recursiveExplore(url: String): Seq[FileHashTuple] = {
+      try{
+        val children = gitHub.listFiles(url)
+        val grandchildren = children
+          .filter(_.fileType == FileTypes.tree)
+          .flatMap(x=> recursiveExplore(x.url))
 
-//    repos.map()
+        grandchildren ++ children.filter(_.fileType == FileTypes.blob)
+      } catch {
+        case e: Exception => {
+          e.printStackTrace()
+          Seq(FileHashTuple(url = url,
+            fileType = null,
+            fileHash = null,
+            commitMsg = e.getMessage))
+        }
+      }
+    }
 
-//    println(gitHub.listFiles("shabbirahussain/SparkTest/master:src"))
+    val (repos, token) = dataStore.checkoutReposToCrawl(1)
+    val allFiles = repos.flatMap(recursiveExplore)
+    dataStore.store(allFiles)
+    val err = allFiles.filter(_.fileType == null)
+      .map(x=> (x.url, x.commitMsg))
 
-//    println(gitHub.getFileCommits("shabbirahussain/SparkTest/master:src/Main.scala"))
+    dataStore.markReposCompleted(token, err)
   }
 
 
 
   def main(args: Array[String]): Unit = {
-    getFileHeads()
+    crawlFileHeads()
+    //    println(gitHub.listFiles("shabbirahussain/SparkTest/master:src"))
+
+    //    println(gitHub.getFileCommits("shabbirahussain/SparkTest/master:src/Main.scala"))
   }
 }

@@ -15,7 +15,7 @@ import scala.io.Source
 /**
   * @author shabbir.ahussain
   */
-object Main {
+object Main extends Serializable {
   val prop = new Properties()
   try {
     val stream = this.getClass.getClassLoader.getResourceAsStream("config.properties")
@@ -37,6 +37,7 @@ object Main {
     dbConnOptions += ("driver"    -> driver)
     dbConnOptions += ("url"       -> url)
     dbConnOptions += ("username"  -> username)
+    dbConnOptions += ("user"      -> username)
     dbConnOptions += ("password"  -> password)
     dbConnOptions += ("schema"    -> schema)
   } catch { case e: Exception => e.printStackTrace(); sys.exit(1)}

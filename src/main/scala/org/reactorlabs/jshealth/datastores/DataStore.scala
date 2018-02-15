@@ -28,7 +28,7 @@ trait DataStore extends Serializable{
     * @param token is the access token to mark them complete.
     * @param errorRepo is the optional list of error repositories.
     */
-  def markReposCompleted(token: String,
+  def markReposCompleted(token: Long,
                          errorRepo: RDD[(String, String)] = null): Unit
 
   /**
