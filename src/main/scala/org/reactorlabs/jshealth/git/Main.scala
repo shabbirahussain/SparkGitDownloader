@@ -2,7 +2,8 @@ package org.reactorlabs.jshealth.git
 
 import java.nio.file.Paths
 
-import org.reactorlabs.jshealth.Main.{logger, prop, sc, spark, dataStore}
+import org.apache.log4j.Level
+import org.reactorlabs.jshealth.Main.{dataStore, logger, prop, sc, spark}
 import org.reactorlabs.jshealth.models.{FileHashTuple, FileTypes}
 import org.reactorlabs.jshealth.repomanagers.{GitHubRestV4, RepoManager}
 
@@ -20,6 +21,12 @@ object Main {
     */
   def crawlFileHeads(): Unit = {
     def recursiveExplore(fht: FileHashTuple): Seq[FileHashTuple] = {
+      if (fht.gitPath.isEmpty){
+        val msg = "Processing: " + fht.owner + "/" + fht.repo + ":" + fht.branch
+        logger.log(Level.INFO, msg)
+        println(msg)
+      }
+
       try{
         val children = gitHub.listFiles(fht.owner, fht.repo, fht.branch, fht.gitPath)
         val grandchildren = children
@@ -66,8 +73,9 @@ object Main {
   def main(args: Array[String]): Unit = {
     println("Git.Main")
 
-    crawlFileHeads()
-    //    println(gitHub.listFiles("shabbirahussain/SparkTest/master:src"))
+//    crawlFileHeads()
+    println(gitHub.listFiles("shabbirahussain", "SparkTest", "master", ""))
+    println(gitHub.listFiles("shabbirahussain", "SparkTest", "master", ""))
 
     //    println(gitHub.getFileCommits("shabbirahussain/SparkTest/master:src/Main.scala"))
   }

@@ -36,7 +36,7 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
     * @return Only OK http responses, otherwise throws an exceptions if max retry attempts are reached.
     */
   private def execQuery(query: Query): CloseableHttpResponse = {
-    apiKey  = keychain.getNextKey(apiKey, remaining, reset, isValid)
+    apiKey  = keychain.getNextKey(apiKey, remaining, reset * 1000, isValid)
 
     // Wait for a valid api key.
     if (apiKey == null){
@@ -140,13 +140,13 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
         val objType = entry.getString("type")
 
         FileHashTuple(owner = owner,
-          repo  = repo,
-          branch      = branch,
-          gitPath         = objUrl,
-          fileType    = FileTypes.withName(objType),
-          fileHash    = objId)
+          repo      = repo,
+          branch    = branch,
+          gitPath   = objUrl,
+          fileType  = FileTypes.withName(objType),
+          fileHash  = objId)
       })
-    } catch {case e:Exception => {println(query)}}
+    } catch {case e:Exception => }
     res
   }
 
