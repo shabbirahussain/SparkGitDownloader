@@ -27,12 +27,16 @@ class LocalStore(batchSize: Int) extends DataStore {
           .filter(_ != null)
           .foreach(sql =>statement.addBatch(sql))
         statement.executeBatch()
+
+        connection.commit()
+        connection.close()
       })
   }
 
   // ================ API Methods ===================
   override def markReposCompleted(token: Long,
-                                  errorRepo: RDD[(FileHashTuple, String)] = null): Unit = {
+                                  errorRepo: RDD[(FileHashTuple, String)] = null)
+  : Unit = {
     val connection = getNewDBConnection
     connection
       .createStatement
@@ -56,6 +60,36 @@ class LocalStore(batchSize: Int) extends DataStore {
                 |  AND BRANCH       = '%s';
               """.stripMargin.format(escapeSql(row._2), row._1.owner, row._1.repo, row._1.branch)
           })
+      )
+    }
+  }
+
+  override def markLinksAsCompleted(token: Long,
+                                  errorRepo: RDD[(FileHashTuple, String)] = null)
+  : Unit = {
+    val connection = getNewDBConnection
+    connection
+      .createStatement
+      .executeLargeUpdate(
+        """
+          |UPDATE FILE_HISTORY_QUEUE
+          |   SET COMPLETED   = TRUE,
+          |       CHECKOUT_ID = NULL
+          |WHERE CHECKOUT_ID  = %d;
+        """.stripMargin.format(token))
+
+    // Update errors to the database.
+    if (errorRepo != null){
+      execInBatch(errorRepo
+        .map(row =>{
+          """
+            |UPDATE REPOS_QUEUE
+            |   SET RESULT = %s
+            |WHERE OWNER        = '%s'
+            |  AND REPOSITORY   = '%s'
+            |  AND BRANCH       = '%s';
+          """.stripMargin.format(escapeSql(row._2), row._1.owner, row._1.repo, row._1.branch)
+        })
       )
     }
   }
@@ -92,7 +126,41 @@ class LocalStore(batchSize: Int) extends DataStore {
     (rdd.map(x=> (x.get(0).toString, x.get(1).toString, x.get(2).toString)), token)
   }
 
-  override def store(fht: RDD[FileHashTuple]): Unit = {
+  override def checkoutLinksToCrawl(limit: Int = 1000)
+  : (RDD[(String, String, String, String)], Long) = {
+    val rdd = spark.sqlContext
+      .read
+      .format("jdbc")
+      .options(dbConnOptions)
+      .option("dbtable", "FILE_HISTORY_QUEUE")
+      .load()
+      .select($"REPO_OWNER", $"REPOSITORY", $"BRANCH", $"GIT_PATH")
+      .filter($"COMPLETED" === false)
+      .filter($"CHECKOUT_ID" isNull)
+      .limit(limit)
+      .rdd
+
+    val token = System.currentTimeMillis()
+
+    // Set checkout timestamp
+    execInBatch(
+      rdd.map(row =>{
+        """
+          |UPDATE REPOS_QUEUE
+          |   SET CHECKOUT_ID = %d
+          |WHERE REPO_OWNER   = '%s'
+          |  AND REPOSITORY   = '%s'
+          |  AND BRANCH       = '%s'
+          |  AND GIT_PATH     = '%s';
+        """.stripMargin.format(token, row.get(0), row.get(1), row.get(2), row.get(3))
+      })
+    )
+
+    (rdd.map(x=> (x.get(0).toString, x.get(1).toString, x.get(2).toString, x.get(3).toString)), token)
+  }
+
+  override def store(fht: RDD[FileHashTuple])
+  : Unit = {
     execInBatch(fht
       .map(row => {
             """
@@ -103,7 +171,8 @@ class LocalStore(batchSize: Int) extends DataStore {
     )
   }
 
-  override def storeHistory(fht: RDD[FileHashTuple]): Unit = {
+  override def storeHistory(fht: RDD[FileHashTuple])
+  : Unit = {
     execInBatch(fht
       .map(row => {
         """
@@ -113,13 +182,16 @@ class LocalStore(batchSize: Int) extends DataStore {
       }))
   }
 
-  override def loadProjectsQueue(projects: RDD[String], flushExisting: Boolean): Unit = {
+  override def loadProjectsQueue(projects: RDD[String], flushExisting: Boolean)
+  : Unit = {
     if (flushExisting) { // Truncate table
       val connection = getNewDBConnection
       connection
         .createStatement
         .execute("TRUNCATE TABLE REPOS_QUEUE;")
+      connection.close()
     }
+
     execInBatch(projects
       .map(row => {
         val parts = row.split("/")

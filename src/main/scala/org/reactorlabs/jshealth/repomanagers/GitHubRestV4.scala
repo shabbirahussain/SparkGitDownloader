@@ -35,7 +35,8 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
     * @param query is the query to execute.
     * @return Only OK http responses, otherwise throws an exceptions if max retry attempts are reached.
     */
-  private def execQuery(query: Query): CloseableHttpResponse = {
+  private def execQuery(query: Query)
+  : CloseableHttpResponse = {
     apiKey  = keychain.getNextKey(apiKey, remaining, reset * 1000, isValid)
 
     // Wait for a valid api key.
@@ -62,7 +63,8 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
     * @param response is the HTTP response from the request.
     * @return HTTP response from one of the retries if all is well.
     */
-  private def parseResponse(response: CloseableHttpResponse): Option[CloseableHttpResponse] = {
+  private def parseResponse(response: CloseableHttpResponse)
+  : Option[CloseableHttpResponse] = {
     response.getFirstHeader("Status").getValue match {
       case  "200 OK" => {
         errCnt  = 0
@@ -83,7 +85,8 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
   /**
     * Tracks error count. Throws error if max errors allowed are reached.
     */
-  private def incError(): Unit = {
+  private def incError()
+  : Unit = {
     errCnt += 1
     if (errCnt >= maxRetries) {
       var msg = "Maximum retry attempts reached."

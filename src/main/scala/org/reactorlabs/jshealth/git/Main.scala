@@ -19,7 +19,8 @@ object Main {
   /**
     * Crawls the files from the frontier queue and stores results back to database.
     */
-  def crawlFileHeads(): Unit = {
+  def crawlFileHeads()
+  : Unit = {
     def recursiveExplore(fht: FileHashTuple): Seq[FileHashTuple] = {
       if (fht.gitPath.isEmpty){
         val msg = "Processing: " + fht.owner + "/" + fht.repo + ":" + fht.branch
@@ -51,13 +52,8 @@ object Main {
     }
 
     val (repos, token) = dataStore.checkoutReposToCrawl(crawlBatchSize)
-
-    val allFiles = repos.flatMap[FileHashTuple](x=> {
-      recursiveExplore(
-        FileHashTuple(owner = x._1,
-          repo = x._2,
-          branch = x._3))
-    })
+    val allFiles = repos.flatMap[FileHashTuple](x=> recursiveExplore(
+        FileHashTuple(owner = x._1, repo = x._2, branch = x._3)))
 
     dataStore.store(allFiles)
     val err = allFiles.filter(_.fileType == null)
@@ -68,15 +64,29 @@ object Main {
     dataStore.markReposCompleted(token, err)
   }
 
+  def crawlFileHistory()
+  : Unit = {
+    val (repos, token) = dataStore.checkoutLinksToCrawl(crawlBatchSize)
+    val allFiles = repos.flatMap[FileHashTuple](x=> gitHub.getFileCommits(x._1, x._2, x._3, x._4))
 
+    dataStore.store(allFiles)
+    val err = allFiles.filter(_.fileType == null)
+      .map(x=> ((x.owner, x.repo, x.branch), 1))
+      .reduceByKey(_+_)
+      .map(x=> (FileHashTuple(x._1._1, x._1._2, x._1._3), x._2.toString))
 
-  def main(args: Array[String]): Unit = {
+    dataStore.markLinksAsCompleted(token, err)
+  }
+
+  def main(args: Array[String])
+  : Unit = {
     println("Git.Main")
 
-//    crawlFileHeads()
-    println(gitHub.listFiles("shabbirahussain", "SparkTest", "master", ""))
-    println(gitHub.listFiles("shabbirahussain", "SparkTest", "master", ""))
+    crawlFileHeads()
+    crawlFileHistory()
 
-    //    println(gitHub.getFileCommits("shabbirahussain/SparkTest/master:src/Main.scala"))
+//    println(gitHub.listFiles("shabbirahussain", "SparkTest", "master", ""))
+//    println(gitHub.listFiles("shabbirahussain", "SparkTest", "master", ""))
+//    println(gitHub.getFileCommits("shabbirahussain/SparkTest/master:src/Main.scala"))
   }
 }

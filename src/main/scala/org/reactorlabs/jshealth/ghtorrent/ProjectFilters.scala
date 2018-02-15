@@ -9,28 +9,28 @@ import scala.io.Source
   * @author shabbirahussain
   */
 object ProjectFilters{
-  def filterCorrupt(rdd: RDD[(String, (Int, Boolean, Boolean, Boolean, Long))]):
-    RDD[(String, (Int, Boolean, Boolean, Boolean, Long))] = {
+  def filterCorrupt(rdd: RDD[(String, (Int, Boolean, Boolean, Boolean, Long))])
+  : RDD[(String, (Int, Boolean, Boolean, Boolean, Long))] = {
     rdd.filter(!_._2._4)
   }
 
-  def filterDeleted(rdd: RDD[(String, (Int, Boolean, Boolean, Boolean, Long))]):
-    RDD[(String, (Int, Boolean, Boolean, Boolean, Long))] = {
+  def filterDeleted(rdd: RDD[(String, (Int, Boolean, Boolean, Boolean, Long))])
+  : RDD[(String, (Int, Boolean, Boolean, Boolean, Long))] = {
     rdd.filter(!_._2._2)
   }
 
-  def filterForked(rdd: RDD[(String, (Int, Boolean, Boolean, Boolean, Long))]):
-    RDD[(String, (Int, Boolean, Boolean, Boolean, Long))] = {
+  def filterForked(rdd: RDD[(String, (Int, Boolean, Boolean, Boolean, Long))])
+  : RDD[(String, (Int, Boolean, Boolean, Boolean, Long))] = {
     rdd.filter(!_._2._3)
   }
 
-  def filterTopN(rdd: RDD[(String, (Int, Boolean, Boolean, Boolean, Long))], n: Int):
-  RDD[(String, (Int, Boolean, Boolean, Boolean, Long))] = {
+  def filterTopN(rdd: RDD[(String, (Int, Boolean, Boolean, Boolean, Long))], n: Int)
+  : RDD[(String, (Int, Boolean, Boolean, Boolean, Long))] = {
     rdd.zipWithIndex.filter(_._2 < n).map(x=> x._1)
   }
 
-  def filterBlacklist(rdd: RDD[String], blacklistPath: String):
-    RDD[String] = {
+  def filterBlacklist(rdd: RDD[String], blacklistPath: String)
+  : RDD[String] = {
     try{
       val blacklist = Source.fromFile(blacklistPath)
         .getLines.toStream

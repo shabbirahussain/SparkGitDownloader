@@ -31,7 +31,8 @@ object Main {
   /**
     * Downloads projects.csv from GHTorrent.
     */
-  private def downloadProjectsList(): Unit = {
+  private def downloadProjectsList()
+  : Unit = {
     // Create a temp sh script
     val stream  = this.getClass.getClassLoader.getResourceAsStream(ghtDownloaderPath)
     val ghtFile = File.createTempFile(ghtDownloaderPath, ".sh")
@@ -60,8 +61,8 @@ object Main {
     * @param parser is the GHTParser to be used.
     * @return RDD of projId.
     */
-  private def loadProjectList(csvPath: String, parser:  Broadcast[GHTParser]):
-    RDD[String] = {
+  private def loadProjectList(csvPath: String, parser:  Broadcast[GHTParser])
+  : RDD[String] = {
     var res = spark.read
       .option("header", "true")       // Use first line of all files as header
       .option("inferSchema", "false") // Automatically infer data types
@@ -80,7 +81,8 @@ object Main {
     res.map(_._1)
   }
 
-  def main(args: Array[String]): Unit = {
+  def main(args: Array[String])
+  : Unit = {
     logger.log(Level.INFO, "Starting GHTorrent Process...")
 
     if (!Paths.get(ghtProjectsFile).toFile.exists()){

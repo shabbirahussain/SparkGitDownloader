@@ -59,14 +59,14 @@ object Main extends Serializable {
   val dataStore: DataStore = new LocalStore(prop.getProperty("ds.mysql.batch.size").toInt)
 
   val logger = Logger.getLogger("project.default.logger")
-  def main(args: Array[String]): Unit = {
+  def main(args: Array[String])
+  : Unit = {
     println("Main")
     var start = 0l
     println("started at:" + new Date())
     start = System.currentTimeMillis()
 
-
-
+    
 //    ghtorrent.Main.main(Array[String]())
     git.Main.main(Array[String]())
 

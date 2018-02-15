@@ -6,7 +6,8 @@ import java.io.File
   * @author shabbirahussain
   */
 package object util {
-  def deleteRecursively(file: File): Unit = {
+  def deleteRecursively(file: File)
+  : Unit = {
     if (file.isDirectory)
       file.listFiles.foreach(deleteRecursively)
     if (file.exists && !file.delete)

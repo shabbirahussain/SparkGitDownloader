@@ -22,7 +22,8 @@ case class FileHashTuple(owner:     String,
                          commitId:  String = null,
                          commitMsg: String = null,
                          commitTime:Long = 0){
-  override def toString: String = {
+  override def toString
+  : String = {
     "{\n\t url: '" + gitPath +
       "'\n\t fileType: '"   + fileType +
       "'\n\t fileHash: '"   + fileHash +

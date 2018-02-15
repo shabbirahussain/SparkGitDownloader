@@ -30,7 +30,8 @@ class Keychain(keyFilePath: String) extends Serializable {
   /**
     * @return Gets time in ms till a new key is available.
     */
-  def getMinCooldownTime: Long = {
+  def getMinCooldownTime
+  : Long = {
     if (available.nonEmpty) return 0
     if (cooldownQ.isEmpty)  {
       val msg = "No usable git api keys found."
@@ -51,7 +52,8 @@ class Keychain(keyFilePath: String) extends Serializable {
     * @param isValid indicates if previously used key was a valid key or not.
     * @return a key to use for next request.
     */
-  def getNextKey(key: String, remaining: Int, reset: Long, isValid: Boolean): String = {
+  def getNextKey(key: String, remaining: Int, reset: Long, isValid: Boolean)
+  : String = {
     if (!isValid) {
       available -= key
     } else {
@@ -66,7 +68,8 @@ class Keychain(keyFilePath: String) extends Serializable {
   /**
     * @return a random key from the list of available keys.
     */
-  private def getNewKey: String = {
+  private def getNewKey
+  : String = {
     if (available.isEmpty){
       // Push keys from cooldown to available list.
       while(cooldownQ.nonEmpty && cooldownQ.head._2 < System.currentTimeMillis) {

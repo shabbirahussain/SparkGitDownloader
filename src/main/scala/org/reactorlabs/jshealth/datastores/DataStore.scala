@@ -28,13 +28,26 @@ trait DataStore extends Serializable{
     * @param token is the access token to mark them complete.
     * @param errorRepo is the optional list of error repositories.
     */
-  def markReposCompleted(token: Long,
-                         errorRepo: RDD[(FileHashTuple, String)] = null): Unit
+  def markReposCompleted(token: Long, errorRepo: RDD[(FileHashTuple, String)] = null): Unit
+
+  /** Marks the checkout file history as completed.
+    *
+    * @param token is the access token to mark them complete.
+    * @param errorRepo is the optional list of error repositories.
+    */
+  def markLinksAsCompleted(token: Long, errorRepo: RDD[(FileHashTuple, String)] = null): Unit
 
   /**
+    * @param limit is the maximum number of records to fetch.
     * @return an RDD of repos which are yet to be completed and a token required to mark them completed.
     */
   def checkoutReposToCrawl(limit: Int): (RDD[(String, String, String)], Long)
+
+  /**
+    * @param limit is the maximum number of records to fetch.
+    * @return an RDD of links which are yet to be completed and a token required to mark them completed.
+    */
+  def checkoutLinksToCrawl(limit: Int): (RDD[(String, String, String, String)], Long)
 
   /** Stores the file hash tuple.
     *

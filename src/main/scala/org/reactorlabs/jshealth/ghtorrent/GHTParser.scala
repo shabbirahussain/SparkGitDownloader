@@ -18,7 +18,8 @@ class GHTParser(languages:Set[Languages.Value] = Set(JavaScript, TypeScript, Cof
   extends Serializable {
   val df = new SimpleDateFormat("yyy-MM-dd HH:mm:ss")
 
-  def parse(line: String): (String, (Int, Boolean, Boolean, Boolean, Long)) = {
+  def parse(line: String)
+  : (String, (Int, Boolean, Boolean, Boolean, Long)) = {
     try{
       val record = CSVParser
         .parse(line, CSVFormat.RFC4180)
