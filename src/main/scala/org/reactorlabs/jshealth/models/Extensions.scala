@@ -1,4 +1,4 @@
-package org.reactorlabs.jshealth.git.models
+package org.reactorlabs.jshealth.models
 
 /**
   * @author shabbir.ahussain

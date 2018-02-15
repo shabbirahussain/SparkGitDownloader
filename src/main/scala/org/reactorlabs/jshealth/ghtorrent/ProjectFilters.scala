@@ -1,7 +1,5 @@
 package org.reactorlabs.jshealth.ghtorrent
 
-import java.nio.file.Paths
-
 import org.apache.spark.rdd.RDD
 
 import scala.io.Source
@@ -29,11 +27,6 @@ object ProjectFilters{
   def filterTopN(rdd: RDD[(String, (Int, Boolean, Boolean, Boolean, Long))], n: Int):
   RDD[(String, (Int, Boolean, Boolean, Boolean, Long))] = {
     rdd.zipWithIndex.filter(_._2 < n).map(x=> x._1)
-  }
-
-  def filterExisting(rdd: RDD[String], repoPath: String):
-    RDD[String] = {
-    rdd.filter(x=> !Paths.get(Paths.get(repoPath).toAbsolutePath + "/" + x + "/_SUCCESS").toFile.exists)
   }
 
   def filterBlacklist(rdd: RDD[String], blacklistPath: String):

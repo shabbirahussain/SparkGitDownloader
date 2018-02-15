@@ -1,4 +1,4 @@
-package org.reactorlabs.jshealth.ghtorrent.models
+package org.reactorlabs.jshealth.models
 
 /**
   * @param projUrl is the project URL as string.

@@ -1,6 +1,6 @@
-package org.reactorlabs.jshealth.git
+package org.reactorlabs.jshealth.repomanagers
 
-import java.nio.file.Paths
+import java.text.SimpleDateFormat
 
 import com.google.gson.Gson
 import org.apache.http.client.methods.{CloseableHttpResponse, HttpPost}
@@ -8,8 +8,8 @@ import org.apache.http.entity.StringEntity
 import org.apache.http.impl.client.HttpClientBuilder
 import org.apache.log4j.Level
 import org.reactorlabs.jshealth.Main.logger
-import org.reactorlabs.jshealth.git.datastores.Keychain
-import org.reactorlabs.jshealth.git.models.FileHashTuple
+import org.reactorlabs.jshealth.datastores.Keychain
+import org.reactorlabs.jshealth.models.{FileHashTuple, FileTypes}
 
 import scala.io.Source
 
@@ -18,9 +18,12 @@ import scala.io.Source
   * @author shabbir.ahussain
   */
 @SerialVersionUID(100L)
-class GitHub(keychain: Keychain, maxRetries: Int = 1) {
+class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
+  extends RepoManager with Serializable {
   private val gitApiEndpoint: String = "https://api.github.com/graphql"
-  private val gson = new Gson()
+  private val gson     = new Gson()
+  private val keychain = new Keychain(apiKeysPath)
+  private val df       = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'")
 
   private var errCnt   : Int = 0
   private var apiKey   : String = _
@@ -80,10 +83,12 @@ class GitHub(keychain: Keychain, maxRetries: Int = 1) {
   /**
     * Tracks error count. Throws error if max errors allowed are reached.
     */
-  private def incError(): Unit = {
+  private def incError(exception: Exception = null): Unit = {
     errCnt += 1
     if (errCnt >= maxRetries) {
-      val msg = "Maximum retry attempts reached."
+      var msg = "Maximum retry attempts reached."
+      if (exception != null) msg = exception.getMessage
+
       logger.log(Level.FATAL, msg)
       throw new Exception(msg)
     }
@@ -95,11 +100,11 @@ class GitHub(keychain: Keychain, maxRetries: Int = 1) {
 
   // ===================== API Methods exposed =====================
 
-  def getProject(url: String): Unit = {
+  override def getProject(url: String): Unit = {
 
   }
 
-  def listFiles(url: String): Seq[FileHashTuple] = {
+  override def listFiles(url: String): Seq[FileHashTuple] = {
     val parts = url.split("/")
     val owner = parts(0)
     val repo  = parts(1)
@@ -122,11 +127,87 @@ class GitHub(keychain: Keychain, maxRetries: Int = 1) {
         |}
       """.stripMargin.format(owner, repo, path))
     val response = execQuery(query)
-    println(Source.fromInputStream(response.getEntity.getContent).mkString(""))
-    Seq()
+    val str = Source.fromInputStream(response.getEntity.getContent).mkString("")
+    val jObj = new org.json.JSONObject(str)
+
+    var res = Seq[FileHashTuple]()
+    try{
+      val entries = jObj.getJSONObject("data")
+        .getJSONObject("repository")
+        .getJSONObject("object")
+        .getJSONArray("entries")
+
+      res = (0 until entries.length).map(i => {
+        val entry = entries.getJSONObject(i)
+
+        val objUrl  = url + "/" +entry.getString("name")
+        val objId   = entry.getString("oid")
+        val objType = entry.getString("type")
+
+        FileHashTuple(url = objUrl,
+          fileType = FileTypes.withName(objType),
+          fileHash = objId,
+          branch   = branch)
+      })
+    } catch {case e:Exception => incError(e)}
+    res
   }
 
-  def getFileCommits(url: String): Seq[FileHashTuple] = {
-    Seq()
+  override def getFileCommits(url: String): Seq[FileHashTuple] = {
+    val parts = url.split("/")
+    val owner = parts(0)
+    val repo  = parts(1)
+    val branch= parts(2).split(":")(0)
+    val path  = url.split(":")(1)
+
+    val query = Query(
+      """{
+        |  repository(owner: "%s", name: "%s") {
+        |    defaultBranchRef{
+        |      target {
+        |        ...on Commit{
+        |            history(first:100,path: "%s"){
+        |            nodes {
+        |              message
+        |              oid
+        |              committedDate
+        |            }
+        |          }
+        |        }
+        |      }
+        |    }
+        |  }
+        |}
+      """.stripMargin.format(owner, repo, path))
+    val response = execQuery(query)
+    val str = Source.fromInputStream(response.getEntity.getContent).mkString("")
+    val jObj = new org.json.JSONObject(str)
+
+    var res = Seq[FileHashTuple]()
+    try{
+      val entries = jObj.getJSONObject("data")
+        .getJSONObject("repository")
+        .getJSONObject("defaultBranchRef")
+        .getJSONObject("target")
+        .getJSONObject("history")
+        .getJSONArray("nodes")
+
+      res = (0 until entries.length).map(i => {
+        val entry = entries.getJSONObject(i)
+
+        val objUrl    = url
+        val objId     = entry.getString("oid")
+        val commitMsg = entry.getString("message")
+        val commitTime= df.parse(entry.getString("committedDate")).getTime
+
+        FileHashTuple(url = objUrl,
+          fileType  = null,
+          fileHash  = objId,
+          branch    = branch,
+          commitMsg = commitMsg,
+          commitTime= commitTime)
+      })
+    } catch {case e:Exception => incError(e)}
+    res
   }
 }

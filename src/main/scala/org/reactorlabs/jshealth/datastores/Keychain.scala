@@ -1,4 +1,4 @@
-package org.reactorlabs.jshealth.git.datastores
+package org.reactorlabs.jshealth.datastores
 
 import org.apache.log4j.Level
 
@@ -11,7 +11,8 @@ import org.reactorlabs.jshealth.Main.logger
   *
   * @author shabbir.ahussain
   */
-class Keychain(keyFilePath: String) {
+@SerialVersionUID(100L)
+class Keychain(keyFilePath: String) extends Serializable {
   private val available = mutable.ListBuffer[String]()
   private val cooldownQ = mutable.PriorityQueue[(String, Long)]()(Ordering.by((x: (String, Long)) => -x._2))
 
@@ -40,12 +41,12 @@ class Keychain(keyFilePath: String) {
   /** Gets the next available key from the keychain.
     *
     * @param key is the current key if used by client. Null is accepted if client is requesting key for the first time.
-    * @param remaining is the X-RateLimit-Remaining for the key. (optional)
-    * @param reset is the X-RateLimit-Reset for the key. (optional)
-    * @param isValid indicates if previously used key was a valid key or not. (optional)
+    * @param remaining is the X-RateLimit-Remaining for the key.
+    * @param reset is the X-RateLimit-Reset for the key.
+    * @param isValid indicates if previously used key was a valid key or not.
     * @return a key to use for next request.
     */
-  def getNextKey(key: String, remaining: Int = 0, reset: Long = 0, isValid: Boolean = true): String = {
+  def getNextKey(key: String, remaining: Int, reset: Long, isValid: Boolean): String = {
     if (!isValid) {
       available -= key
     } else {
@@ -67,7 +68,7 @@ class Keychain(keyFilePath: String) {
         available += cooldownQ.dequeue._1
       }
     }
-    println("available="+available)
+
     // Return a random key from available keys.
     if (available.nonEmpty){
       return available(rnd.nextInt(available.length))
