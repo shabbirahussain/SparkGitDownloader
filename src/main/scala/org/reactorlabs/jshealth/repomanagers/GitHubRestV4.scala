@@ -83,14 +83,11 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
   /**
     * Tracks error count. Throws error if max errors allowed are reached.
     */
-  private def incError(exception: Exception = null): Unit = {
+  private def incError(): Unit = {
     errCnt += 1
     if (errCnt >= maxRetries) {
       var msg = "Maximum retry attempts reached."
-      if (exception != null) msg = exception.getMessage
-
-      logger.log(Level.FATAL, msg)
-      throw new Exception(msg)
+      logger.log(Level.ERROR, msg)
     }
   }
 
@@ -100,16 +97,13 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
 
   // ===================== API Methods exposed =====================
 
-  override def getProject(url: String): Unit = {
+  override def getProject(owner: String, repo:String, branch:String, gitPath: String): Unit = {
 
   }
 
-  override def listFiles(url: String): Seq[FileHashTuple] = {
-    val parts = url.split("/")
-    val owner = parts(0)
-    val repo  = parts(1)
-    val branch= parts(2).split(":")(0)
-    val path  = branch + ":"  + (if(url.endsWith(":")) "" else url.split(":")(1))
+  override def listFiles(owner: String, repo:String, branch:String, gitPath: String)
+  : Seq[FileHashTuple] = {
+    val path  = branch + ":"  + gitPath
 
     val query = Query(
       """{
@@ -141,25 +135,24 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
       res = (0 until entries.length).map(i => {
         val entry = entries.getJSONObject(i)
 
-        val objUrl  = url + (if (url.endsWith(":")) "" else "/") + entry.getString("name")
+        val objUrl  = gitPath + (if (gitPath.nonEmpty) "/" else "") + entry.getString("name")
         val objId   = entry.getString("oid")
         val objType = entry.getString("type")
 
-        FileHashTuple(url = objUrl,
-          fileType = FileTypes.withName(objType),
-          fileHash = objId,
-          branch   = branch)
+        FileHashTuple(owner = owner,
+          repo  = repo,
+          branch      = branch,
+          gitPath         = objUrl,
+          fileType    = FileTypes.withName(objType),
+          fileHash    = objId)
       })
-    } catch {case e:Exception => incError(e)}
+    } catch {case e:Exception => {println(query)}}
     res
   }
 
-  override def getFileCommits(url: String): Seq[FileHashTuple] = {
-    val parts = url.split("/")
-    val owner = parts(0)
-    val repo  = parts(1)
-    val branch= parts(2).split(":")(0)
-    val path  = url.split(":")(1)
+  override def getFileCommits(owner: String, repo:String, branch:String, gitPath: String)
+  : Seq[FileHashTuple] = {
+    val path  = gitPath
 
     val query = Query(
       """{
@@ -196,19 +189,21 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
       res = (0 until entries.length).map(i => {
         val entry = entries.getJSONObject(i)
 
-        val objUrl    = url
         val objId     = entry.getString("oid")
         val commitMsg = entry.getString("message")
         val commitTime= df.parse(entry.getString("committedDate")).getTime
 
-        FileHashTuple(url = objUrl,
+        FileHashTuple(
+          owner = owner,
+          repo = repo,
+          gitPath       = gitPath,
           fileType  = null,
           fileHash  = objId,
           branch    = branch,
           commitMsg = commitMsg,
           commitTime= commitTime)
       })
-    } catch {case e:Exception => incError(e)}
+    } catch {case e:Exception => {println(query)}}
     res
   }
 }

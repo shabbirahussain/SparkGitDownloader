@@ -2,8 +2,7 @@ package org.reactorlabs.jshealth.git
 
 import java.nio.file.Paths
 
-import org.reactorlabs.jshealth.Main.{logger, prop, sc, spark}
-import org.reactorlabs.jshealth.datastores.{DataStore, LocalStore}
+import org.reactorlabs.jshealth.Main.{logger, prop, sc, spark, dataStore}
 import org.reactorlabs.jshealth.models.{FileHashTuple, FileTypes}
 import org.reactorlabs.jshealth.repomanagers.{GitHubRestV4, RepoManager}
 
@@ -11,43 +10,53 @@ import org.reactorlabs.jshealth.repomanagers.{GitHubRestV4, RepoManager}
   * @author shabbirahussain
   */
 object Main {
-  private val gitRepoPath = prop.getProperty("git.repo.path")
   private val extensions  = prop.getProperty("git.download.extensions")
-    .split(",").map(_.trim.toLowerCase).toSet
-  private val keyFilePath = prop.getProperty("git.api.keys.path")
+    .toLowerCase.split(",").map(_.trim).toSet
+  private val gitHub: RepoManager  = new GitHubRestV4(prop.getProperty("git.api.keys.path"))
+  private val crawlBatchSize = prop.getProperty("git.crawl.batch.size").toInt
 
-  private val gitRepoDir = Paths.get(gitRepoPath).toFile
-  if (! gitRepoDir.exists()) gitRepoDir.mkdirs()
-
-  private val gitHub: RepoManager  = new GitHubRestV4(keyFilePath)
-  private val dataStore: DataStore = new LocalStore()
-
-
+  /**
+    * Crawls the files from the frontier queue and stores results back to database.
+    */
   def crawlFileHeads(): Unit = {
-    def recursiveExplore(url: String): Seq[FileHashTuple] = {
+    def recursiveExplore(fht: FileHashTuple): Seq[FileHashTuple] = {
       try{
-        val children = gitHub.listFiles(url)
+        val children = gitHub.listFiles(fht.owner, fht.repo, fht.branch, fht.gitPath)
         val grandchildren = children
           .filter(_.fileType == FileTypes.tree)
-          .flatMap(x=> recursiveExplore(x.url))
+          .flatMap(x=> recursiveExplore(x))
 
-        grandchildren ++ children.filter(_.fileType == FileTypes.blob)
+        grandchildren.++(children
+          .filter(_.fileType == FileTypes.blob)
+          .filter(x=> extensions.contains(x.gitPath.substring(x.gitPath.lastIndexOf(".") + 1))))
       } catch {
         case e: Exception => {
-          e.printStackTrace()
-          Seq(FileHashTuple(url = url,
-            fileType = null,
-            fileHash = null,
+          Seq(FileHashTuple(
+            owner     = fht.owner,
+            repo      = fht.repo,
+            branch    = fht.branch,
+            gitPath   = fht.gitPath,
+            fileType  = null,
+            fileHash  = null,
             commitMsg = e.getMessage))
         }
       }
     }
 
-    val (repos, token) = dataStore.checkoutReposToCrawl(1)
-    val allFiles = repos.flatMap(recursiveExplore)
+    val (repos, token) = dataStore.checkoutReposToCrawl(crawlBatchSize)
+
+    val allFiles = repos.flatMap[FileHashTuple](x=> {
+      recursiveExplore(
+        FileHashTuple(owner = x._1,
+          repo = x._2,
+          branch = x._3))
+    })
+
     dataStore.store(allFiles)
     val err = allFiles.filter(_.fileType == null)
-      .map(x=> (x.url, x.commitMsg))
+      .map(x=> ((x.owner, x.repo, x.branch), 1))
+      .reduceByKey(_+_)
+      .map(x=> (FileHashTuple(x._1._1, x._1._2, x._1._3), x._2.toString))
 
     dataStore.markReposCompleted(token, err)
   }
@@ -55,6 +64,8 @@ object Main {
 
 
   def main(args: Array[String]): Unit = {
+    println("Git.Main")
+
     crawlFileHeads()
     //    println(gitHub.listFiles("shabbirahussain/SparkTest/master:src"))
 

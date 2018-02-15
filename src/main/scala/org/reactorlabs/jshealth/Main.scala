@@ -1,6 +1,6 @@
 package org.reactorlabs.jshealth
 
-import java.util.Properties
+import java.util.{Date, Properties}
 import java.sql.DriverManager
 import java.sql.Connection
 
@@ -18,9 +18,11 @@ import scala.io.Source
 object Main extends Serializable {
   val prop = new Properties()
   try {
-    val stream = this.getClass.getClassLoader.getResourceAsStream("config.properties")
+    val stream = this.getClass
+      .getClassLoader
+      .getResourceAsStream("config.properties")
     prop.load(stream)
-    if (stream != null) stream.close()
+    stream.close()
   } catch { case e: Exception => e.printStackTrace(); sys.exit(1)}
 
   var dbConnOptions: mutable.Map[String, String] = mutable.Map[String, String]()
@@ -54,13 +56,24 @@ object Main extends Serializable {
 
   val sqlContext: SQLContext = spark.sqlContext
 
-  val dataStore: DataStore = new LocalStore
+  val dataStore: DataStore = new LocalStore(prop.getProperty("ds.mysql.batch.size").toInt)
 
   val logger = Logger.getLogger("project.default.logger")
   def main(args: Array[String]): Unit = {
     println("Main")
+    var start = 0l
+    println("started at:" + new Date())
+    start = System.currentTimeMillis()
+
+
+
 //    ghtorrent.Main.main(Array[String]())
     git.Main.main(Array[String]())
+
+
+
+    println("\nended at:" + new Date() +
+      "\ttook:"+ (System.currentTimeMillis() - start))
   }
 
   def getNewDBConnection: Connection = {

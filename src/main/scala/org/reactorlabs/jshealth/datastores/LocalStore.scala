@@ -3,11 +3,12 @@ package org.reactorlabs.jshealth.datastores
 import org.apache.spark.rdd.RDD
 import org.reactorlabs.jshealth.Main.{getNewDBConnection, sc, spark, sqlContext, dbConnOptions}
 import org.reactorlabs.jshealth.models.FileHashTuple
+import org.apache.commons.lang.StringEscapeUtils.escapeSql
 
 /**
   * @author shabbirahussain
   */
-class LocalStore() extends DataStore {
+class LocalStore(batchSize: Int) extends DataStore {
   import sqlContext.implicits._
 
   /** Executes batch of sql statements.
@@ -15,20 +16,23 @@ class LocalStore() extends DataStore {
     * @param sqls is the rdd of sql statements.
     * @param batchSize is the size of the batches to use.
     */
-  private def execInBatch(sqls: RDD[String], batchSize: Int= 1000): Unit = {
+  private def execInBatch(sqls: RDD[String], batchSize: Int = batchSize): Unit = {
     //sqls.foreach(println)
     sqls
       .mapPartitions(_.grouped(batchSize))
       .foreach(batch => {
         val connection = getNewDBConnection
         val statement = connection.createStatement()
-        batch.foreach(sql =>statement.addBatch(sql))
+        batch
+          .filter(_ != null)
+          .foreach(sql =>statement.addBatch(sql))
         statement.executeBatch()
       })
   }
 
   // ================ API Methods ===================
-  override def markReposCompleted(token: Long, errorRepo: RDD[(String, String)] = null): Unit = {
+  override def markReposCompleted(token: Long,
+                                  errorRepo: RDD[(FileHashTuple, String)] = null): Unit = {
     val connection = getNewDBConnection
     connection
       .createStatement
@@ -37,33 +41,34 @@ class LocalStore() extends DataStore {
           |UPDATE REPOS_QUEUE
           |   SET COMPLETED   = TRUE,
           |       CHECKOUT_ID = NULL
-          |WHERE CHECKOUT_ID  = '%d';
-        """.stripMargin.format(token)) // todo: Unsafe. prone to sql injection
+          |WHERE CHECKOUT_ID  = %d;
+        """.stripMargin.format(token))
 
     // Update errors to the database.
-//    if (errorRepo != null){
-//      execInBatch(errorRepo
-//        .map(row =>{
-//            val split = row._1.split(":")
-//              """
-//                |UPDATE REPOS_QUEUE
-//                |   SET RESULT = %s
-//                |WHERE REPOSITORY   = '%s'
-//                |  AND BRANCH       = '%s';
-//              """.stripMargin.format(row._2, split(0), split(1))
-//          })
-//      )
-//    }
+    if (errorRepo != null){
+      execInBatch(errorRepo
+        .map(row =>{
+              """
+                |UPDATE REPOS_QUEUE
+                |   SET RESULT = %s
+                |WHERE OWNER        = '%s'
+                |  AND REPOSITORY   = '%s'
+                |  AND BRANCH       = '%s';
+              """.stripMargin.format(escapeSql(row._2), row._1.owner, row._1.repo, row._1.branch)
+          })
+      )
+    }
   }
 
-  override def checkoutReposToCrawl(limit: Int = 1000): (RDD[String], Long) = {
+  override def checkoutReposToCrawl(limit: Int = 1000)
+  : (RDD[(String, String, String)], Long) = {
     val rdd = spark.sqlContext
       .read
       .format("jdbc")
       .options(dbConnOptions)
       .option("dbtable", "REPOS_QUEUE")
       .load()
-      .select($"REPOSITORY", $"BRANCH")
+      .select($"REPO_OWNER", $"REPOSITORY", $"BRANCH")
       .filter($"COMPLETED" === false)
       .filter($"CHECKOUT_ID" isNull)
       .limit(limit)
@@ -77,22 +82,23 @@ class LocalStore() extends DataStore {
             """
               |UPDATE REPOS_QUEUE
               |   SET CHECKOUT_ID = %d
-              |WHERE REPOSITORY   = '%s'
+              |WHERE REPO_OWNER   = '%s'
+              |  AND REPOSITORY   = '%s'
               |  AND BRANCH       = '%s';
-            """.stripMargin.format(token, row.get(0), row.get(1))
+            """.stripMargin.format(token, row.get(0), row.get(1), row.get(2))
         })
     )
 
-    (rdd.map[String](x=> x.get(0) + "/" + x.get(1) + ":"), token)
+    (rdd.map(x=> (x.get(0).toString, x.get(1).toString, x.get(2).toString)), token)
   }
 
   override def store(fht: RDD[FileHashTuple]): Unit = {
     execInBatch(fht
       .map(row => {
             """
-              |INSERT INTO FILE_HASH_HEAD(BRANCH, GIT_PATH, HASH_CODE)
-              |VALUES ('%s', '%s', '%s');
-            """.stripMargin.format(row.branch, row.url, row.fileHash)
+              |INSERT INTO FILE_HASH_HEAD(REPO_OWNER, REPOSITORY, BRANCH, GIT_PATH, HASH_CODE)
+              |VALUES ('%s', '%s', '%s', '%s', '%s');
+            """.stripMargin.format(row.owner, row.repo, row.branch, row.gitPath, row.fileHash)
         })
     )
   }
@@ -101,9 +107,9 @@ class LocalStore() extends DataStore {
     execInBatch(fht
       .map(row => {
         """
-          |INSERT INTO FILE_HASH_HISTORY(BRANCH, GIT_PATH, HASH_CODE, COMMIT_ID, COMMIT_TIME)
-          |VALUES ('%s', '%s', '%s', '%s', '%d');
-        """.stripMargin.format(row.branch, row.url, row.fileHash, row.commitId, row.commitTime)
+          |INSERT INTO FILE_HASH_HISTORY(REPO_OWNER, REPOSITORY, BRANCH, GIT_PATH, HASH_CODE, COMMIT_ID, COMMIT_TIME)
+          |VALUES ('%s', '%s', '%s', '%s', '%s', '%s', %d);
+        """.stripMargin.format(row.owner, row.repo, row.branch, row.gitPath, row.fileHash, row.commitId, row.commitTime)
       }))
   }
 
@@ -114,14 +120,13 @@ class LocalStore() extends DataStore {
         .createStatement
         .execute("TRUNCATE TABLE REPOS_QUEUE;")
     }
-    println("projs=", projects.count())
-
     execInBatch(projects
       .map(row => {
-          """
-            |INSERT INTO REPOS_QUEUE(REPOSITORY)
-            |VALUES ('%s');
-          """.stripMargin.format(row)
+        val parts = row.split("/")
+        if (parts.length != 2)   null
+        else
+          """INSERT IGNORE INTO REPOS_QUEUE(REPO_OWNER, REPOSITORY) VALUES ('%s', '%s');"""
+            .stripMargin.format(parts(0), parts(1))
       }))
   }
 }

@@ -29,12 +29,12 @@ trait DataStore extends Serializable{
     * @param errorRepo is the optional list of error repositories.
     */
   def markReposCompleted(token: Long,
-                         errorRepo: RDD[(String, String)] = null): Unit
+                         errorRepo: RDD[(FileHashTuple, String)] = null): Unit
 
   /**
     * @return an RDD of repos which are yet to be completed and a token required to mark them completed.
     */
-  def checkoutReposToCrawl(limit: Int): (RDD[String], Long)
+  def checkoutReposToCrawl(limit: Int): (RDD[(String, String, String)], Long)
 
   /** Stores the file hash tuple.
     *

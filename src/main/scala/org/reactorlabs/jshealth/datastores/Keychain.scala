@@ -1,5 +1,7 @@
 package org.reactorlabs.jshealth.datastores
 
+import java.util.Date
+
 import org.apache.log4j.Level
 
 import scala.collection.mutable
@@ -35,6 +37,11 @@ class Keychain(keyFilePath: String) extends Serializable {
       logger.log(Level.FATAL, msg)
       throw new Exception(msg)
     }
+
+    val msg = "All available keys exhausted at:" + new Date()
+    logger.log(Level.WARN, msg)
+    println(msg)
+
     cooldownQ.head._2
   }
 
