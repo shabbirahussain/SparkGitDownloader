@@ -2,6 +2,9 @@ package org.reactorlabs.jshealth.repomanagers
 
 import org.reactorlabs.jshealth.models.FileHashTuple
 
+/**
+  * @author shabbirahussain
+  */
 trait RepoManager {
   /** Given an URL to explore lists all files available in the directory.
     *

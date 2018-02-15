@@ -13,6 +13,9 @@ import org.reactorlabs.jshealth.models.Languages
 
 import sys.process._
 
+/**
+  * @author shabbirahussain
+  */
 object Main {
   private val ghtTarName        = prop.getProperty("ghtorrent.archive.name")
   private val ghtRepoPath       = prop.getProperty("ghtorrent.repo.path")

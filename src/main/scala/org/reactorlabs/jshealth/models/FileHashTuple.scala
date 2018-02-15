@@ -9,7 +9,7 @@ package org.reactorlabs.jshealth.models;
  * @param commitTime is time file is committed.
  * @param branch is the branch of file.
  *
- * @author shabbir.ahussain
+ * @author shabbirahussain
  */
 case class FileHashTuple(url: String,
                          fileType: FileTypes.Value,

@@ -6,7 +6,7 @@ import scala.io.Source
 
 /** Applies filters to the given projects list.
   *
-  * @author shabbir.ahussain
+  * @author shabbirahussain
   */
 object ProjectFilters{
   def filterCorrupt(rdd: RDD[(String, (Int, Boolean, Boolean, Boolean, Long))]):

@@ -1,7 +1,7 @@
 package org.reactorlabs.jshealth.models
 
 /**
-  * @author shabbir.ahussain
+  * @author shabbirahussain
   */
 object Languages extends Enumeration {
   type Language = Value

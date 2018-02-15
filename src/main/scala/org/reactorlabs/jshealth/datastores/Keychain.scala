@@ -9,7 +9,7 @@ import org.reactorlabs.jshealth.Main.logger
   *
   * @param keyFilePath is the path of the text auth key file.
   *
-  * @author shabbir.ahussain
+  * @author shabbirahussain
   */
 @SerialVersionUID(100L)
 class Keychain(keyFilePath: String) extends Serializable {

@@ -7,6 +7,9 @@ import org.reactorlabs.jshealth.datastores.{DataStore, LocalStore}
 import org.reactorlabs.jshealth.models.{FileHashTuple, FileTypes}
 import org.reactorlabs.jshealth.repomanagers.{GitHubRestV4, RepoManager}
 
+/**
+  * @author shabbirahussain
+  */
 object Main {
   private val gitRepoPath = prop.getProperty("git.repo.path")
   private val extensions  = prop.getProperty("git.download.extensions")

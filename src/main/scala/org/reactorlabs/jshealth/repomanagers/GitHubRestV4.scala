@@ -15,7 +15,7 @@ import scala.io.Source
 
 /** Class responsible for downloading files from github.com. It serves as a wrapper over Git API.
   *
-  * @author shabbir.ahussain
+  * @author shabbirahussain
   */
 @SerialVersionUID(100L)
 class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
@@ -105,7 +105,6 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
   }
 
   override def listFiles(url: String): Seq[FileHashTuple] = {
-    println(url)
     val parts = url.split("/")
     val owner = parts(0)
     val repo  = parts(1)
@@ -132,10 +131,6 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
     val jObj = new org.json.JSONObject(str)
 
     var res = Seq[FileHashTuple]()
-
-
-    println(query)
-    println(jObj)
 
     try{
       val entries = jObj.getJSONObject("data")

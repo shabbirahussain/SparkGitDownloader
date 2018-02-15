@@ -8,7 +8,7 @@ package org.reactorlabs.jshealth.models
   * @param isCorrupt represents any error in parsing of the record.
   * @param created is the time represents of the created date.
   *
-  * @author shabbir.ahussain
+  * @author shabbirahussain
   */
 final case class GHTRecord(projUrl  : String,
                      projLang : Int,

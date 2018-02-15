@@ -3,7 +3,7 @@ package org.reactorlabs.jshealth
 import java.io.File
 
 /**
-  * @author shabbir.ahussain
+  * @author shabbirahussain
   */
 package object util {
   def deleteRecursively(file: File): Unit = {

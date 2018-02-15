@@ -4,7 +4,9 @@ import org.apache.spark.rdd.RDD
 import org.reactorlabs.jshealth.Main.{getNewDBConnection, sc, spark, sqlContext, dbConnOptions}
 import org.reactorlabs.jshealth.models.FileHashTuple
 
-
+/**
+  * @author shabbirahussain
+  */
 class LocalStore() extends DataStore {
   import sqlContext.implicits._
 

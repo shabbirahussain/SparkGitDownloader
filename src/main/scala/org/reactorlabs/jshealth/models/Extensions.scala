@@ -1,7 +1,7 @@
 package org.reactorlabs.jshealth.models
 
 /**
-  * @author shabbir.ahussain
+  * @author shabbirahussain
   */
 object Extensions extends Enumeration{
     type Extension = Value

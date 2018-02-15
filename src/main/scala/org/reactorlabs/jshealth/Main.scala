@@ -13,7 +13,7 @@ import scala.collection.mutable
 import scala.io.Source
 
 /**
-  * @author shabbir.ahussain
+  * @author shabbirahussain
   */
 object Main extends Serializable {
   val prop = new Properties()

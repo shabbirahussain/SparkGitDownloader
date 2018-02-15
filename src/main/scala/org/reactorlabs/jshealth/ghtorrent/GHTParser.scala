@@ -11,7 +11,7 @@ import org.reactorlabs.jshealth.models.Languages
   *
   * @param languages is the set of Languages as defined in the emum.
   *
-  * @author shabbir.ahussain
+  * @author shabbirahussain
   */
 @SerialVersionUID(100L)
 class GHTParser(languages:Set[Languages.Value] = Set(JavaScript, TypeScript, CoffeeScript))

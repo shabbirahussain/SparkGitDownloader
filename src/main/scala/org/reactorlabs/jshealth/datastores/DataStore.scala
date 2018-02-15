@@ -5,7 +5,7 @@ import org.reactorlabs.jshealth.models.FileHashTuple
 
 /** Stores data and metadata of a file transparently.
   *
-  * @author shabbir.ahussain
+  * @author shabbirahussain
   */
 trait DataStore extends Serializable{
 
