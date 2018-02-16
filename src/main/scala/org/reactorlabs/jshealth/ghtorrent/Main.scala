@@ -63,12 +63,14 @@ object Main {
     */
   private def loadProjectList(csvPath: String, parser:  Broadcast[GHTParser])
   : RDD[String] = {
-    var res = spark.read
-      .option("header", "true")       // Use first line of all files as header
-      .option("inferSchema", "false") // Automatically infer data types
-      .textFile(csvPath)
+//    var res = spark.read
+//      .option("header", "true")       // Use first line of all files as header
+//      .option("inferSchema", "false") // Automatically infer data types
+//      .textFile(csvPath)
+//      .map(parser.value.parse)
+//      .rdd
+    var res = sc.textFile(csvPath)
       .map(parser.value.parse)
-      .rdd
 
     res = ProjectFilters.filterCorrupt(res)
     if (ghtProjFilters.contains("filterDeleted"))  res = ProjectFilters.filterDeleted(res)
