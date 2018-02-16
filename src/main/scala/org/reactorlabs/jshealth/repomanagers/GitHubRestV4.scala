@@ -11,6 +11,7 @@ import org.reactorlabs.jshealth.Main.logger
 import org.reactorlabs.jshealth.datastores.Keychain
 import org.reactorlabs.jshealth.models.{FileHashTuple, FileTypes}
 
+import scala.collection.mutable
 import scala.io.Source
 
 /** Class responsible for downloading files from github.com. It serves as a wrapper over Git API.
@@ -18,14 +19,14 @@ import scala.io.Source
   * @author shabbirahussain
   */
 @SerialVersionUID(100L)
-class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
+class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 2)
   extends RepoManager with Serializable {
   private val gitApiEndpoint: String = "https://api.github.com/graphql"
   private val gson     = new Gson()
   private val keychain = new Keychain(apiKeysPath)
   private val df       = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'")
 
-  private var errCnt   : Int = 0
+  private var errCounter: mutable.Map[String, Long] = mutable.Map()
   private var apiKey   : String = _
   private var remaining: Int = 0
   private var reset    : Long = 0
@@ -36,12 +37,12 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
     * @return Only OK http responses, otherwise throws an exceptions if max retry attempts are reached.
     */
   private def execQuery(query: Query)
-  : CloseableHttpResponse = {
+  : Option[CloseableHttpResponse] = {
     apiKey  = keychain.getNextKey(apiKey, remaining, reset * 1000, isValid)
 
     // Wait for a valid api key.
     if (apiKey == null){
-      incError()
+      setOrIncError("APIKeyError")
       val minWait = Math.max(1, keychain.getMinCooldownTime - System.currentTimeMillis())
       Thread.sleep(minWait)
       return execQuery(query)
@@ -54,8 +55,13 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
     post.setEntity(new StringEntity(gson.toJson(query)))
 
     val response = parseResponse(HttpClientBuilder.create.build.execute(post))
-    if (response.isDefined) return response.get
-    execQuery(query)
+    if (response.isDefined) {
+      setOrIncError("ResponseError", 0)
+      return Some(response.get)
+    }
+    if (!setOrIncError("ResponseError"))
+      execQuery(query)
+    None
   }
 
   /** Checks for common errors and reties. Throws exception if max reties are exhausted.
@@ -67,8 +73,6 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
   : Option[CloseableHttpResponse] = {
     response.getFirstHeader("Status").getValue match {
       case  "200 OK" => {
-        errCnt  = 0
-
         response.getFirstHeader("X-RateLimit-Limit")
         isValid   = true
         remaining = response.getFirstHeader("X-RateLimit-Remaining").getValue.toInt
@@ -78,20 +82,31 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
       case  "401 Unauthorized" => isValid = false
       case _ =>
     }
-    incError()
     None
   }
 
   /**
     * Tracks error count. Throws error if max errors allowed are reached.
+    * @param err is the key for error tracking.
+    * @param value is the optional value for the counter to be set to. (must be >= 0)
+    * @return true if error threshold is reached.
     */
-  private def incError()
-  : Unit = {
-    errCnt += 1
-    if (errCnt >= maxRetries) {
-      var msg = "Maximum retry attempts reached."
-      logger.log(Level.ERROR, msg)
+  private def setOrIncError(err: String, value: Long = -1)
+  : Boolean = {
+    if (value >= 0) {
+      errCounter.put(err, value)
+      return false
     }
+
+    val errors = errCounter.getOrElse(err, 0)
+    errCounter += (err -> (errors + 1))
+
+    if (errors >= maxRetries) {
+      var msg = "Maximum retry attempts reached for: " + err
+      logger.log(Level.ERROR, msg)
+      return true
+    }
+    false
   }
 
   private case class Query(query: String){
@@ -100,12 +115,14 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
 
   // ===================== API Methods exposed =====================
 
-  override def getProject(owner: String, repo:String, branch:String, gitPath: String): Unit = {
+  override def getProject(owner: String, repo:String, branch:String, gitPath: String)
+  : Unit = {
 
   }
 
   override def listFiles(owner: String, repo:String, branch:String, gitPath: String)
   : Seq[FileHashTuple] = {
+    var res = Seq[FileHashTuple]()
     val path  = branch + ":"  + gitPath
 
     val query = Query(
@@ -124,10 +141,10 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
         |}
       """.stripMargin.format(owner, repo, path))
     val response = execQuery(query)
-    val str = Source.fromInputStream(response.getEntity.getContent).mkString("")
-    val jObj = new org.json.JSONObject(str)
+    if (response.isEmpty) return res
 
-    var res = Seq[FileHashTuple]()
+    val str = Source.fromInputStream(response.get.getEntity.getContent).mkString("")
+    val jObj = new org.json.JSONObject(str)
 
     try{
       val entries = jObj.getJSONObject("data")
@@ -155,6 +172,7 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
 
   override def getFileCommits(owner: String, repo:String, branch:String, gitPath: String)
   : Seq[FileHashTuple] = {
+    var res = Seq[FileHashTuple]()
     val path  = gitPath
 
     val query = Query(
@@ -177,10 +195,10 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 1)
         |}
       """.stripMargin.format(owner, repo, path))
     val response = execQuery(query)
-    val str = Source.fromInputStream(response.getEntity.getContent).mkString("")
-    val jObj = new org.json.JSONObject(str)
+    if (response.isEmpty) return res
 
-    var res = Seq[FileHashTuple]()
+    val str = Source.fromInputStream(response.get.getEntity.getContent).mkString("")
+    val jObj = new org.json.JSONObject(str)
     try{
       val entries = jObj.getJSONObject("data")
         .getJSONObject("repository")
