@@ -36,7 +36,7 @@ class Keychain(keyFilePath: String) extends Serializable {
     if (cooldownQ.isEmpty)  {
       val msg = "No usable git api keys found."
       logger.log(Level.FATAL, msg)
-      throw new Exception(msg)
+      System.exit(1)
     }
 
     val msg = "All available keys exhausted at:" + new Date() + "\t min waiting=" + cooldownQ.head._2
