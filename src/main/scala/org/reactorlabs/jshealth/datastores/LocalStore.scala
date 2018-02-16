@@ -22,20 +22,17 @@ class LocalStore(batchSize: Int) extends DataStore {
       .mapPartitions(_.grouped(batchSize))
       .foreach(batch => {
         val connection = getNewDBConnection
-        val statement = connection.createStatement()
+        val statement  = connection.createStatement()
         batch
           .filter(_ != null)
-          .foreach(sql =>statement.addBatch(sql))
+          .foreach(sql => statement.addBatch(sql))
         statement.executeBatch()
-
-        connection.commit()
         connection.close()
       })
   }
 
   // ================ API Methods ===================
-  override def markReposCompleted(token: Long,
-                                  errorRepo: RDD[(FileHashTuple, String)] = null)
+  override def markReposCompleted(token: Long, errorRepo: RDD[(FileHashTuple, String)] = null)
   : Unit = {
     val connection = getNewDBConnection
     connection
@@ -64,8 +61,7 @@ class LocalStore(batchSize: Int) extends DataStore {
     }
   }
 
-  override def markLinksAsCompleted(token: Long,
-                                  errorRepo: RDD[(FileHashTuple, String)] = null)
+  override def markLinksAsCompleted(token: Long, errorRepo: RDD[(FileHashTuple, String)] = null)
   : Unit = {
     val connection = getNewDBConnection
     connection

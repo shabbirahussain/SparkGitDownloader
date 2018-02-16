@@ -1,5 +1,6 @@
 package org.reactorlabs.jshealth
 
+import java.io.FileInputStream
 import java.util.{Date, Properties}
 import java.sql.DriverManager
 import java.sql.Connection
@@ -16,13 +17,18 @@ import scala.io.Source
   * @author shabbirahussain
   */
 object Main extends Serializable {
-  val prop = new Properties()
+  val logger:Logger = Logger.getLogger("project.default.logger")
+
+  val prop: Properties = new Properties()
   try {
-    val stream = this.getClass
-      .getClassLoader
-      .getResourceAsStream("config.properties")
+    val loader = this.getClass.getClassLoader
+    val stream = loader.getResourceAsStream("config-defaults.properties")
     prop.load(stream)
     stream.close()
+
+//    val stream1 = new FileInputStream("config.properties")
+//    prop.load(stream1)
+//    stream1.close()
   } catch { case e: Exception => e.printStackTrace(); sys.exit(1)}
 
   var dbConnOptions: mutable.Map[String, String] = mutable.Map[String, String]()
@@ -48,6 +54,8 @@ object Main extends Serializable {
     .builder()
     .master(prop.getProperty("spark.master"))
     .appName("ReactorLabs Git Miner")
+    .config("spark.cores.max", prop.getProperty("spark.cores.max"))
+    .config("spark.executor.memory", prop.getProperty("spark.executor.memory"))
     .getOrCreate()
 
   val sc: SparkContext = spark.sparkContext
@@ -58,7 +66,6 @@ object Main extends Serializable {
 
   val dataStore: DataStore = new LocalStore(prop.getProperty("ds.mysql.batch.size").toInt)
 
-  val logger = Logger.getLogger("project.default.logger")
   def main(args: Array[String])
   : Unit = {
     println("Main")
@@ -66,14 +73,11 @@ object Main extends Serializable {
     println("started at:" + new Date())
     start = System.currentTimeMillis()
 
-    
+
 //    ghtorrent.Main.main(Array[String]())
     git.Main.main(Array[String]())
 
-
-
-    println("\nended at:" + new Date() +
-      "\ttook:"+ (System.currentTimeMillis() - start))
+    println("\nended at:" + new Date() + "\ttook:"+ (System.currentTimeMillis() - start))
   }
 
   def getNewDBConnection: Connection = {

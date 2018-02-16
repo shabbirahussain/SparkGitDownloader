@@ -39,7 +39,7 @@ class Keychain(keyFilePath: String) extends Serializable {
       throw new Exception(msg)
     }
 
-    val msg = "All available keys exhausted at:" + new Date()
+    val msg = "All available keys exhausted at:" + new Date() + "\t min waiting=" + cooldownQ.head._2
     logger.log(Level.WARN, msg)
     cooldownQ.head._2
   }

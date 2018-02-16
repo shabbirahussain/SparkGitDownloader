@@ -16,11 +16,12 @@ object Main {
   private val gitHub: RepoManager  = new GitHubRestV4(prop.getProperty("git.api.keys.path"))
   private val crawlBatchSize = prop.getProperty("git.crawl.batch.size").toInt
 
-  /**
-    * Crawls the files from the frontier queue and stores results back to database.
+  /** Crawls the files from the frontier queue and stores files list back to database.
+    *
+    * @return status if current sprint had any files to work on.
     */
   def crawlFileHeads()
-  : Unit = {
+  : Boolean = {
     def recursiveExplore(fht: FileHashTuple): Seq[FileHashTuple] = {
       if (fht.gitPath.isEmpty){
         val msg = "Processing: " + fht.owner + "/" + fht.repo + ":" + fht.branch
@@ -52,6 +53,7 @@ object Main {
     }
 
     val (repos, token) = dataStore.checkoutReposToCrawl(crawlBatchSize)
+    if (repos.count() == 0) return false
     val allFiles = repos.flatMap[FileHashTuple](x=> recursiveExplore(
         FileHashTuple(owner = x._1, repo = x._2, branch = x._3)))
 
@@ -62,11 +64,17 @@ object Main {
       .map(x=> (FileHashTuple(x._1._1, x._1._2, x._1._3), x._2.toString))
 
     dataStore.markReposCompleted(token, err)
+    true
   }
 
+  /** Crawls the files from the frontier queue and stores commit history back to database.
+    *
+    * @return status if current sprint had any files to work on.
+    */
   def crawlFileHistory()
-  : Unit = {
+  : Boolean = {
     val (repos, token) = dataStore.checkoutLinksToCrawl(crawlBatchSize)
+    if (repos.count() == 0) return false
     val allFiles = repos.flatMap[FileHashTuple](x=> gitHub.getFileCommits(x._1, x._2, x._3, x._4))
 
     dataStore.store(allFiles)
@@ -76,14 +84,18 @@ object Main {
       .map(x=> (FileHashTuple(x._1._1, x._1._2, x._1._3), x._2.toString))
 
     dataStore.markLinksAsCompleted(token, err)
+    true
   }
 
   def main(args: Array[String])
   : Unit = {
     println("Git.Main")
 
-    crawlFileHeads()
-    crawlFileHistory()
+    var continue = true
+    do{
+      continue = crawlFileHeads()
+//      continue = crawlFileHistory()
+    } while(continue)
 
 //    println(gitHub.listFiles("shabbirahussain", "SparkTest", "master", ""))
 //    println(gitHub.listFiles("shabbirahussain", "SparkTest", "master", ""))
