@@ -52,7 +52,7 @@ class LocalStore(batchSize: Int) extends DataStore {
               """
                 |UPDATE REPOS_QUEUE
                 |   SET RESULT = %s
-                |WHERE OWNER        = '%s'
+                |WHERE REPO_OWNER   = '%s'
                 |  AND REPOSITORY   = '%s'
                 |  AND BRANCH       = '%s';
               """.stripMargin.format(escapeSql(row._2), row._1.owner, row._1.repo, row._1.branch)
@@ -160,7 +160,7 @@ class LocalStore(batchSize: Int) extends DataStore {
     execInBatch(fht
       .map(row => {
             """
-              |INSERT INTO FILE_HASH_HEAD(REPO_OWNER, REPOSITORY, BRANCH, GIT_PATH, HASH_CODE)
+              |INSERT IGNORE INTO FILE_HASH_HEAD(REPO_OWNER, REPOSITORY, BRANCH, GIT_PATH, HASH_CODE)
               |VALUES ('%s', '%s', '%s', '%s', '%s');
             """.stripMargin.format(row.owner, row.repo, row.branch, row.gitPath, row.fileHash)
         })
@@ -172,7 +172,7 @@ class LocalStore(batchSize: Int) extends DataStore {
     execInBatch(fht
       .map(row => {
         """
-          |INSERT INTO FILE_HASH_HISTORY(REPO_OWNER, REPOSITORY, BRANCH, GIT_PATH, HASH_CODE, COMMIT_ID, COMMIT_TIME)
+          |INSERT IGNORE INTO FILE_HASH_HISTORY(REPO_OWNER, REPOSITORY, BRANCH, GIT_PATH, HASH_CODE, COMMIT_ID, COMMIT_TIME)
           |VALUES ('%s', '%s', '%s', '%s', '%s', '%s', %d);
         """.stripMargin.format(row.owner, row.repo, row.branch, row.gitPath, row.fileHash, row.commitId, row.commitTime)
       }))
