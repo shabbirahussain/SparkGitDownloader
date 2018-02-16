@@ -52,15 +52,15 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 2)
     val post = new HttpPost(gitApiEndpoint)
     post.setHeader("Content-type", "application/json")
     post.setHeader("Authorization", "bearer " + apiKey)
-    post.setEntity(new StringEntity(gson.toJson(query)))
+    post.setEntity(new StringEntity(gson.toJson(query), "UTF-8"))
 
     val response = parseResponse(HttpClientBuilder.create.build.execute(post))
     if (response.isDefined) {
       setOrIncError("ResponseError", 0)
       return Some(response.get)
     }
-    if (!setOrIncError("ResponseError"))
-      execQuery(query)
+//    if (!setOrIncError("ResponseError", query=query))
+//      execQuery(query)
     None
   }
 
@@ -71,18 +71,18 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 2)
     */
   private def parseResponse(response: CloseableHttpResponse)
   : Option[CloseableHttpResponse] = {
+    var res:Option[CloseableHttpResponse] = None
     response.getFirstHeader("Status").getValue match {
       case  "200 OK" => {
-        response.getFirstHeader("X-RateLimit-Limit")
         isValid   = true
-        remaining = response.getFirstHeader("X-RateLimit-Remaining").getValue.toInt
-        reset     = response.getFirstHeader("X-RateLimit-Reset").getValue.toLong
-        return Some(response)
+        res = Some(response)
       }
-      case  "401 Unauthorized" => isValid = false
-      case _ =>
+      case "401 Unauthorized" => isValid = false
+      case _ => logger.log(Level.WARN, Source.fromInputStream(response.getEntity.getContent).mkString(""))
     }
-    None
+    remaining = response.getFirstHeader("X-RateLimit-Remaining").getValue.toInt
+    reset     = response.getFirstHeader("X-RateLimit-Reset").getValue.toLong
+    res
   }
 
   /**
@@ -91,18 +91,18 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 2)
     * @param value is the optional value for the counter to be set to. (must be >= 0)
     * @return true if error threshold is reached.
     */
-  private def setOrIncError(err: String, value: Long = -1)
+  private def setOrIncError(err: String, value: Long = -1, query: Query = null)
   : Boolean = {
     if (value >= 0) {
       errCounter.put(err, value)
       return false
     }
 
-    val errors = errCounter.getOrElse(err, 0)
+    val errors: Long = errCounter.getOrElse(err, 0)
     errCounter += (err -> (errors + 1))
 
-    if (errors >= maxRetries) {
-      var msg = "Maximum retry attempts reached for: " + err
+    if (errors > maxRetries) {
+      val msg = "Maximum retry attempts reached for: " + err + (if(query != null) query else "")
       logger.log(Level.ERROR, msg)
       return true
     }
@@ -110,7 +110,7 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 2)
   }
 
   private case class Query(query: String){
-    override def toString = """{"query": "query """ + query + """"} """
+    override def toString = """{"query": "query """ + query.replaceAll("(\\s|\n)+", " ") + """"} """
   }
 
   // ===================== API Methods exposed =====================
@@ -166,7 +166,7 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 2)
           fileType  = FileTypes.withName(objType),
           fileHash  = objId)
       })
-    } catch {case e:Exception => }
+    } catch {case e:Exception => {e.printStackTrace(); logger.log(Level.WARN, response)}}
     res
   }
 
