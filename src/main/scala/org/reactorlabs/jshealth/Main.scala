@@ -54,12 +54,14 @@ object Main extends Serializable {
     .builder()
     .master(prop.getProperty("spark.master"))
     .appName("ReactorLabs Git Miner")
-    .config("spark.cores.max", prop.getProperty("spark.cores.max"))
+    .config("spark.cores.max",       prop.getProperty("spark.cores.max"))
+    .config("spark.executor.cores",  prop.getProperty("spark.executor.cores"))
+    .config("spark.workers.cores",   prop.getProperty("spark.executor.cores"))
     .config("spark.executor.memory", prop.getProperty("spark.executor.memory"))
     .getOrCreate()
 
   val sc: SparkContext = spark.sparkContext
-  sc.setLogLevel("ERROR")
+  sc.setLogLevel("WARN")
   sc.setCheckpointDir("target/temp/spark/")
 
   val sqlContext: SQLContext = spark.sqlContext
@@ -76,6 +78,9 @@ object Main extends Serializable {
 
 //    ghtorrent.Main.main(Array[String]())
     git.Main.main(Array[String]())
+
+//    sc.textFile("/Users/shabbirhussain/Data/project/mysql-2018-02-01/projects.csv")
+//      .saveAsTextFile("/Users/shabbirhussain/Data/project/mysql-2018-02-01/projects_full.csv")
 
     println("\nended at:" + new Date() + "\ttook:"+ (System.currentTimeMillis() - start))
   }
