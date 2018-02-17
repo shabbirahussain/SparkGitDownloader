@@ -61,20 +61,28 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 2, timeout: Int = 3000
     post.setHeader("Authorization", "bearer " + apiKey)
     post.setEntity(new StringEntity(gson.toJson(query), "UTF-8"))
 
+    var response: Option[CloseableHttpResponse]= None
+    try{
+      response = parseResponse(HttpClientBuilder
+        .create
+        .setDefaultRequestConfig(reqConf)
+        .build
+        .execute(post))
 
-    val response = parseResponse(HttpClientBuilder
-      .create
-      .setDefaultRequestConfig(reqConf)
-      .build
-      .execute(post))
-
-    if (response.isDefined) {
-      setOrIncError("ResponseError", 0)
+      if (response.isDefined) setOrIncError("ResponseError", 0)
       return Some(response.get)
+    } catch {
+      case e: Exception => {
+        logger.log(Level.WARN, e.getMessage)
+      }
     }
-//    if (!setOrIncError("ResponseError", query=query))
-//      execQuery(query)
-    None
+    // Check if it should retry
+    if (!setOrIncError("ResponseError", query=query)){
+      logger.log(Level.WARN, "Retrying..." + query)
+      response = execQuery(query)
+    }
+
+    response
   }
 
   /** Checks for common errors and reties. Throws exception if max reties are exhausted.
@@ -85,26 +93,27 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 2, timeout: Int = 3000
   private def parseResponse(response: CloseableHttpResponse)
   : Option[CloseableHttpResponse] = {
     var res:Option[CloseableHttpResponse] = None
+
+    remaining = response.getFirstHeader("X-RateLimit-Remaining").getValue.toInt
+    reset     = response.getFirstHeader("X-RateLimit-Reset").getValue.toLong
+
     response.getFirstHeader("Status").getValue match {
       case  "200 OK" => {
         isValid   = true
-        res = Some(response)
+        if (remaining > 0) res = Some(response)
       }
       case "401 Unauthorized" => {
         isValid = false
       }
       case "403 Forbidden" => {
         backOff()
-        logger.log(Level.WARN, Source.fromInputStream(response.getEntity.getContent).mkString(""))
+        logger.log(Level.WARN, "Backing off..." +
+          Source.fromInputStream(response.getEntity.getContent).mkString(""))
       }
       case _ => {
         logger.log(Level.WARN, Source.fromInputStream(response.getEntity.getContent).mkString(""))
       }
     }
-    try{
-      remaining = response.getFirstHeader("X-RateLimit-Remaining").getValue.toInt
-      reset     = response.getFirstHeader("X-RateLimit-Reset").getValue.toLong
-    } catch {case _:Exception=>}
     res
   }
 
@@ -202,7 +211,11 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 2, timeout: Int = 3000
           fileType  = FileTypes.withName(objType),
           fileHash  = objId)
       })
-    } catch {case e:Exception => {logger.log(Level.WARN, response)}}
+    } catch {
+      case e:Exception => {
+        logger.log(Level.WARN, e.getMessage + " [Req:" + query + "][Res:" + str + "]")
+      }
+    }
     res
   }
 
@@ -251,16 +264,18 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 2, timeout: Int = 3000
         val commitTime= df.parse(entry.getString("committedDate")).getTime
 
         FileHashTuple(
-          owner = owner,
-          repo = repo,
-          gitPath       = gitPath,
+          owner     = owner,
+          repo      = repo,
+          gitPath   = gitPath,
           fileType  = null,
           fileHash  = objId,
           branch    = branch,
           commitMsg = commitMsg,
           commitTime= commitTime)
       })
-    } catch {case e:Exception => {println(query)}}
+    } catch {case e:Exception => {
+      logger.log(Level.WARN, e.getMessage + " [Req:" + query + "][Res:" + str + "]")
+    }}
     res
   }
 }

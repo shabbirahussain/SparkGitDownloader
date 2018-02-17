@@ -1,6 +1,7 @@
 package org.reactorlabs.jshealth.git
 
 import java.nio.file.Paths
+import java.util.Date
 
 import org.apache.log4j.Level
 import org.reactorlabs.jshealth.Main.{dataStore, logger, prop, sc, spark}
@@ -81,8 +82,13 @@ object Main {
   def crawlFileHistory()
   : Boolean = {
     val (links, token) = dataStore.checkoutLinksToCrawl(crawlBatchSize)
-    if (links.count() == 0) return false
+    val cnt = links.count()
+    println((new Date()) + "Processing: " + cnt + " links.")
+
+    if (cnt == 0) return false
     val allFiles = links.flatMap[FileHashTuple](x=> gitHub.getFileCommits(x._1, x._2, x._3, x._4))
+
+    dataStore.storeHistory(allFiles)
 
     val err = allFiles.filter(_.fileType == null)
       .map(x=> ((x.owner, x.repo, x.branch), 1))
@@ -100,8 +106,8 @@ object Main {
 
     var continue = true
     do{
-      continue = crawlFileHeads()
-//      continue = crawlFileHistory()
+//      continue = crawlFileHeads()
+      continue = crawlFileHistory()
     } while(continue)
 
 //    println(gitHub.listFiles("avelinoferreiragf", "avelino", "master", "Gestao Estrategica TI/02 - Alinhamento Estratégico de TI"))

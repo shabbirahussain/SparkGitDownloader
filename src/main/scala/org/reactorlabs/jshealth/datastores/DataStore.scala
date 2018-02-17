@@ -58,5 +58,5 @@ trait DataStore extends Serializable{
     *
     * @param fileHash is the input tuple.
     */
-  def storeHistory(fileHash: Seq[FileHashTuple]): Unit
+  def storeHistory(fileHash: RDD[FileHashTuple]): Unit
 }

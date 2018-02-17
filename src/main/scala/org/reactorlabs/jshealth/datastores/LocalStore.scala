@@ -78,7 +78,7 @@ class LocalStore(batchSize: Int) extends DataStore {
   override def markLinksAsCompleted(token: Long, errorRepo: RDD[(FileHashTuple, String)] = null)
   : Unit = {
     val sql = """
-                |UPDATE FILE_HISTORY_QUEUE
+                |UPDATE FILE_HASH_HEAD
                 |   SET COMPLETED   = TRUE,
                 |       CHECKOUT_ID = NULL
                 |WHERE CHECKOUT_ID  = %d;
@@ -90,12 +90,18 @@ class LocalStore(batchSize: Int) extends DataStore {
       execInBatch(errorRepo
         .map(row =>{
           """
-            |UPDATE REPOS_QUEUE
+            |UPDATE FILE_HASH_HEAD
             |   SET RESULT = %s
-            |WHERE OWNER        = '%s'
+            |WHERE REPO_OWNER   = '%s'
             |  AND REPOSITORY   = '%s'
-            |  AND BRANCH       = '%s';
-          """.stripMargin.format(escapeSql(row._2), row._1.owner, escapeSql(row._1.repo), row._1.branch)
+            |  AND BRANCH       = '%s'
+            |  AND GIT_PATH     = '%s';
+          """.stripMargin
+            .format(escapeSql(row._2),
+              row._1.owner,
+              escapeSql(row._1.repo),
+              row._1.branch,
+              escapeSql(row._1.gitPath))
         })
       )
     }
@@ -138,7 +144,7 @@ class LocalStore(batchSize: Int) extends DataStore {
       .read
       .format("jdbc")
       .options(dbConnOptions)
-      .option("dbtable", "FILE_HISTORY_QUEUE")
+      .option("dbtable", "FILE_HASH_HEAD")
       .load()
       .select($"REPO_OWNER", $"REPOSITORY", $"BRANCH", $"GIT_PATH")
       .filter($"COMPLETED" === false)
@@ -152,7 +158,7 @@ class LocalStore(batchSize: Int) extends DataStore {
     execInBatch(
       rdd.map(row =>{
         """
-          |UPDATE REPOS_QUEUE
+          |UPDATE FILE_HASH_HEAD
           |   SET CHECKOUT_ID = %d
           |WHERE REPO_OWNER   = '%s'
           |  AND REPOSITORY   = '%s'
@@ -176,13 +182,13 @@ class LocalStore(batchSize: Int) extends DataStore {
         })
     )
   }
-  override def storeHistory(fht: Seq[FileHashTuple])
+  override def storeHistory(fht: RDD[FileHashTuple])
   : Unit = {
     execInBatch(fht
       .map(row => {
         """
           |INSERT IGNORE INTO FILE_HASH_HISTORY(REPO_OWNER, REPOSITORY, BRANCH, GIT_PATH, HASH_CODE, COMMIT_ID, COMMIT_TIME)
-          |VALUES ('%s', '%s', '%s', '%s', '%s', '%s', %d);
+          |VALUES ('%s', '%s', '%s', '%s', '%s', %s, %d);
         """.stripMargin.format(row.owner, escapeSql(row.repo), row.branch, escapeSql(row.gitPath), row.fileHash, row.commitId, row.commitTime)
       }))
   }
