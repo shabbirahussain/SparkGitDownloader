@@ -20,7 +20,7 @@ class Keychain(keyFilePath: String) extends Serializable {
 
   try{
     val source = scala.io.Source.fromFile(keyFilePath)
-    source.getLines.foreach(x=>available += x)
+    source.getLines.foreach(x=>available += x.trim)
     source.close()
     if (available.isEmpty) throw new Exception("No auth keys found at: " + keyFilePath)
   } catch {case e: Exception => throw e}
@@ -39,7 +39,8 @@ class Keychain(keyFilePath: String) extends Serializable {
       System.exit(1)
     }
 
-    val msg = "All available keys exhausted at:" + new Date() + "\t min waiting=" + cooldownQ.head._2
+    val msg = "All available keys exhausted at:" + new Date() +
+      "\t min waiting=" + ((cooldownQ.head._2 - System.currentTimeMillis()) / 60000)
     logger.log(Level.WARN, msg)
     cooldownQ.head._2
   }

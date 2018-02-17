@@ -19,14 +19,20 @@ case class FileHashTuple(owner:     String,
                          gitPath:   String = "",
                          fileType:  FileTypes.Value = null,
                          fileHash:  String = null,
+                         error:     String = null,
                          commitId:  String = null,
                          commitMsg: String = null,
                          commitTime:Long = 0){
   override def toString
   : String = {
-    "{\n\t url: '" + gitPath +
+    "{" +
+      " \n\t owner: '"      + owner +
+      "'\n\t repo: '"       + repo +
+      "'\n\t branch: '"     + branch +
+      "'\n\t gitPath: '"    + gitPath +
       "'\n\t fileType: '"   + fileType +
       "'\n\t fileHash: '"   + fileHash +
+      "'\n\t error: '"      + error +
       "'\n\t commitId: '"   + commitId +
       "'\n\t commitMsg: '"  + commitMsg +
       "'\n\t commitTime: '" + commitTime +

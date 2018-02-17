@@ -21,4 +21,9 @@ trait RepoManager {
   def getFileCommits(owner: String, repo:String, branch:String, gitPath: String): Seq[FileHashTuple]
 
   def getProject(owner: String, repo:String, branch:String, gitPath: String): Unit
+
+  /**
+    * Reloads api keys from the key file.
+    */
+  def reloadAPIKeys(): Unit
 }

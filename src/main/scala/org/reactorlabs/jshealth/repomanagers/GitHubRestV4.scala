@@ -3,6 +3,7 @@ package org.reactorlabs.jshealth.repomanagers
 import java.text.SimpleDateFormat
 
 import com.google.gson.Gson
+import org.apache.http.client.config.RequestConfig
 import org.apache.http.client.methods.{CloseableHttpResponse, HttpPost}
 import org.apache.http.entity.StringEntity
 import org.apache.http.impl.client.HttpClientBuilder
@@ -13,18 +14,24 @@ import org.reactorlabs.jshealth.models.{FileHashTuple, FileTypes}
 
 import scala.collection.mutable
 import scala.io.Source
+import scala.util.Random
 
 /** Class responsible for downloading files from github.com. It serves as a wrapper over Git API.
   *
   * @author shabbirahussain
   */
 @SerialVersionUID(100L)
-class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 2)
+class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 2, timeout: Int = 3000)
   extends RepoManager with Serializable {
   private val gitApiEndpoint: String = "https://api.github.com/graphql"
   private val gson     = new Gson()
-  private val keychain = new Keychain(apiKeysPath)
+  private var keychain = new Keychain(apiKeysPath)
   private val df       = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'")
+  private val reqConf  = RequestConfig.custom()
+    .setConnectTimeout(timeout)
+    .setConnectionRequestTimeout(timeout)
+    .setSocketTimeout(timeout)
+    .build()
 
   private var errCounter: mutable.Map[String, Long] = mutable.Map()
   private var apiKey   : String = _
@@ -54,7 +61,13 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 2)
     post.setHeader("Authorization", "bearer " + apiKey)
     post.setEntity(new StringEntity(gson.toJson(query), "UTF-8"))
 
-    val response = parseResponse(HttpClientBuilder.create.build.execute(post))
+
+    val response = parseResponse(HttpClientBuilder
+      .create
+      .setDefaultRequestConfig(reqConf)
+      .build
+      .execute(post))
+
     if (response.isDefined) {
       setOrIncError("ResponseError", 0)
       return Some(response.get)
@@ -77,12 +90,30 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 2)
         isValid   = true
         res = Some(response)
       }
-      case "401 Unauthorized" => isValid = false
-      case _ => logger.log(Level.WARN, Source.fromInputStream(response.getEntity.getContent).mkString(""))
+      case "401 Unauthorized" => {
+        isValid = false
+      }
+      case "403 Forbidden" => {
+        backOff()
+        logger.log(Level.WARN, Source.fromInputStream(response.getEntity.getContent).mkString(""))
+      }
+      case _ => {
+        logger.log(Level.WARN, Source.fromInputStream(response.getEntity.getContent).mkString(""))
+      }
     }
-    remaining = response.getFirstHeader("X-RateLimit-Remaining").getValue.toInt
-    reset     = response.getFirstHeader("X-RateLimit-Reset").getValue.toLong
+    try{
+      remaining = response.getFirstHeader("X-RateLimit-Remaining").getValue.toInt
+      reset     = response.getFirstHeader("X-RateLimit-Reset").getValue.toLong
+    } catch {case _:Exception=>}
     res
+  }
+
+  /**
+    * Tries to relax the crawl to avoid abusive behavior.
+    */
+  private def backOff()
+  : Unit = {
+    Thread.sleep((Random.nextInt(10) + 1) * 60 * 1000)
   }
 
   /**
@@ -114,6 +145,11 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 2)
   }
 
   // ===================== API Methods exposed =====================
+
+  override def reloadAPIKeys()
+  : Unit = {
+    keychain = new Keychain(apiKeysPath)
+  }
 
   override def getProject(owner: String, repo:String, branch:String, gitPath: String)
   : Unit = {
@@ -166,7 +202,7 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 2)
           fileType  = FileTypes.withName(objType),
           fileHash  = objId)
       })
-    } catch {case e:Exception => {e.printStackTrace(); logger.log(Level.WARN, response)}}
+    } catch {case e:Exception => {logger.log(Level.WARN, response)}}
     res
   }
 

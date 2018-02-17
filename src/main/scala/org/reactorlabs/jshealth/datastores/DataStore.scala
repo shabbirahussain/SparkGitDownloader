@@ -25,10 +25,9 @@ trait DataStore extends Serializable{
 
   /** Marks the checkout repositories as completed.
     *
-    * @param token is the access token to mark them complete.
-    * @param errorRepo is the optional list of error repositories.
+    * @param fht is the parent repo tuple.
     */
-  def markReposCompleted(token: Long, errorRepo: RDD[(FileHashTuple, String)] = null): Unit
+  def markRepoCompleted(fht: FileHashTuple): Unit
 
   /** Marks the checkout file history as completed.
     *
@@ -53,11 +52,11 @@ trait DataStore extends Serializable{
     *
     * @param fileHash is the input tuple.
     */
-  def store(fileHash: RDD[FileHashTuple]): Unit
+  def store(fileHash: Seq[FileHashTuple]): Unit
 
   /** Stores the file hash tuple history.
     *
     * @param fileHash is the input tuple.
     */
-  def storeHistory(fileHash: RDD[FileHashTuple]): Unit
+  def storeHistory(fileHash: Seq[FileHashTuple]): Unit
 }
