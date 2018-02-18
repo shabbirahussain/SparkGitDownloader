@@ -21,7 +21,7 @@ import scala.util.Random
   * @author shabbirahussain
   */
 @SerialVersionUID(100L)
-class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 2, timeout: Int = 3000)
+class GitHubApiV4(apiKeysPath: String, maxRetries: Int = 2, timeout: Int = 3000)
   extends RepoManager with Serializable {
   private val gitApiEndpoint: String = "https://api.github.com/graphql"
   private val gson     = new Gson()
@@ -92,7 +92,6 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 2, timeout: Int = 3000
     */
   private def parseResponse(response: CloseableHttpResponse)
   : Option[CloseableHttpResponse] = {
-    var res:Option[CloseableHttpResponse] = None
 
     remaining = response.getFirstHeader("X-RateLimit-Remaining").getValue.toInt
     reset     = response.getFirstHeader("X-RateLimit-Reset").getValue.toLong
@@ -100,21 +99,21 @@ class GitHubRestV4(apiKeysPath: String, maxRetries: Int = 2, timeout: Int = 3000
     response.getFirstHeader("Status").getValue match {
       case  "200 OK" => {
         isValid   = true
-        if (remaining > 0) res = Some(response)
+        if (remaining > 0)
+          return Some(response)
       }
       case "401 Unauthorized" => {
         isValid = false
+        logger.log(Level.WARN, "Invalid Key")
       }
       case "403 Forbidden" => {
         backOff()
-        logger.log(Level.WARN, "Backing off..." +
-          Source.fromInputStream(response.getEntity.getContent).mkString(""))
+        logger.log(Level.WARN, "Backing off...")
       }
-      case _ => {
-        logger.log(Level.WARN, Source.fromInputStream(response.getEntity.getContent).mkString(""))
-      }
+      case _ => {}
     }
-    res
+    logger.log(Level.WARN, Source.fromInputStream(response.getEntity.getContent).mkString(""))
+    None
   }
 
   /**

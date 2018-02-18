@@ -6,7 +6,7 @@ import java.util.Date
 import org.apache.log4j.Level
 import org.reactorlabs.jshealth.Main.{dataStore, logger, prop, sc, spark}
 import org.reactorlabs.jshealth.models.{FileHashTuple, FileTypes}
-import org.reactorlabs.jshealth.repomanagers.{GitHubRestV4, RepoManager}
+import org.reactorlabs.jshealth.repomanagers.{GitHubApiV4, RepoManager}
 
 /**
   * @author shabbirahussain
@@ -15,7 +15,7 @@ object Main {
   private val extensions  = prop.getProperty("git.download.extensions")
     .toLowerCase.split(",").map(_.trim).toSet
   private val apiKeysPath = prop.getProperty("git.api.keys.path")
-  private val gitHub: RepoManager  = new GitHubRestV4(apiKeysPath)
+  private val gitHub: RepoManager  = new GitHubApiV4(apiKeysPath)
   private val crawlBatchSize = prop.getProperty("git.crawl.batch.size").toInt
   private val lineWidth      = prop.getProperty("console.line.width").toInt
 
@@ -81,9 +81,9 @@ object Main {
     */
   def crawlFileHistory()
   : Boolean = {
-    val (links, token) = dataStore.checkoutLinksToCrawl(crawlBatchSize)
+    val (links, token) = dataStore.checkoutLinksToCrawl(crawlBatchSize * 5)
     val cnt = links.count()
-    println((new Date()) + "Processing: " + cnt + " links.")
+    println((new Date()) + " Processing: " + cnt + " links.")
 
     if (cnt == 0) return false
     val allFiles = links.flatMap[FileHashTuple](x=> gitHub.getFileCommits(x._1, x._2, x._3, x._4))

@@ -17,17 +17,21 @@ class LocalStore(batchSize: Int) extends DataStore {
     * @param sqls is the rdd of sql statements.
     * @param batchSize is the size of the batches to use.
     */
-  private def execInBatch(sqls: RDD[String], batchSize: Int = batchSize): Unit = {
+  private def execInBatch(sqls: RDD[String], batchSize: Int = batchSize, autoCommit: Boolean = true): Unit = {
     //sqls.foreach(println)
     sqls
       .mapPartitions(_.grouped(batchSize))
       .foreach(batch => {
         val connection = getNewDBConnection
         val statement  = connection.createStatement()
+        connection.setAutoCommit(autoCommit)
+
         batch
           .filter(_ != null)
           .foreach(sql => statement.addBatch(sql))
         statement.executeBatch()
+
+        if (!autoCommit) connection.commit()
         connection.close()
       })
   }
@@ -133,7 +137,7 @@ class LocalStore(batchSize: Int) extends DataStore {
               |  AND REPOSITORY   = '%s'
               |  AND BRANCH       = '%s';
             """.stripMargin.format(token, row.get(0), escapeSql(row.get(1).toString), row.get(2))
-        })
+        }), batchSize = limit, autoCommit = false
     )
 
     (rdd.map(x=> (x.get(0).toString, x.get(1).toString, x.get(2).toString)), token)
@@ -164,8 +168,9 @@ class LocalStore(batchSize: Int) extends DataStore {
           |  AND REPOSITORY   = '%s'
           |  AND BRANCH       = '%s'
           |  AND GIT_PATH     = '%s';
-        """.stripMargin.format(token, row.get(0), escapeSql(row.get(1).toString), row.get(2), row.get(3))
-      })
+        """.stripMargin
+          .format(token, row.get(0), escapeSql(row.get(1).toString), row.get(2), escapeSql(row.get(3).toString))
+      }), batchSize = limit, autoCommit = false
     )
 
     (rdd.map(x=> (x.get(0).toString, x.get(1).toString, x.get(2).toString, x.get(3).toString)), token)

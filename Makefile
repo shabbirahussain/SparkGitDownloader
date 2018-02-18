@@ -25,9 +25,9 @@ build:
 		src/main/scala/org/reactorlabs/jshealth/*.scala
 	cp -r src/main/resources/* target/classes
 	cp src/main/shell/GHTorrent.sh target/classes
-	jar cvfm ${JAR_NAME} \
+	jar cfm ${JAR_NAME} \
 		src/main/scala/META-INF/MANIFEST.MF \
-		-C target/classes/ . &>/dev/null
+		-C target/classes/ .
 
 run:
 	${SPARK_BIN_PATH}spark-submit \
