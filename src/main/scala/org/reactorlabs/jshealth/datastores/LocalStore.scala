@@ -38,7 +38,6 @@ class LocalStore(batchSize: Int) extends DataStore {
   /** Executes batch of sql statements.
     *
     * @param sqls is the rdd of sql statements.
-    * @param batchSize is the size of the batches to use.
     */
   private def execInBatch(sqls: Seq[String]): Unit = {
     //sqls.foreach(println)
@@ -79,37 +78,6 @@ class LocalStore(batchSize: Int) extends DataStore {
 
     execInBatch(Seq(if(fht.error == null) sql else sqlE))
   }
-  override def markLinksAsCompleted(token: Long, errorRepo: RDD[(FileHashTuple, String)] = null)
-  : Unit = {
-    val sql = """
-                |UPDATE FILE_HASH_HEAD
-                |   SET COMPLETED   = TRUE,
-                |       CHECKOUT_ID = NULL
-                |WHERE CHECKOUT_ID  = %d;
-              """.stripMargin.format(token)
-    execInBatch(Seq(sql))
-
-    // Update errors to the database.
-    if (errorRepo != null){
-      execInBatch(errorRepo
-        .map(row =>{
-          """
-            |UPDATE FILE_HASH_HEAD
-            |   SET RESULT = %s
-            |WHERE REPO_OWNER   = '%s'
-            |  AND REPOSITORY   = '%s'
-            |  AND BRANCH       = '%s'
-            |  AND GIT_PATH     = '%s';
-          """.stripMargin
-            .format(escapeSql(row._2),
-              row._1.owner,
-              escapeSql(row._1.repo),
-              row._1.branch,
-              escapeSql(row._1.gitPath))
-        })
-      )
-    }
-  }
 
   override def checkoutReposToCrawl(limit: Int = 1000)
   : (RDD[(String, String, String)], Long) = {
@@ -142,52 +110,8 @@ class LocalStore(batchSize: Int) extends DataStore {
 
     (rdd.map(x=> (x.get(0).toString, x.get(1).toString, x.get(2).toString)), token)
   }
-  override def checkoutLinksToCrawl(limit: Int = 1000)
-  : (RDD[(String, String, String, String)], Long) = {
-    val rdd = spark.sqlContext
-      .read
-      .format("jdbc")
-      .options(dbConnOptions)
-      .option("dbtable", "FILE_HASH_HEAD")
-      .load()
-      .select($"REPO_OWNER", $"REPOSITORY", $"BRANCH", $"GIT_PATH")
-      .filter($"COMPLETED" === false)
-      .filter($"CHECKOUT_ID" isNull)
-      .limit(limit)
-      .rdd
 
-    val token = System.currentTimeMillis()
-
-    // Set checkout timestamp
-    execInBatch(
-      rdd.map(row =>{
-        """
-          |UPDATE FILE_HASH_HEAD
-          |   SET CHECKOUT_ID = %d
-          |WHERE REPO_OWNER   = '%s'
-          |  AND REPOSITORY   = '%s'
-          |  AND BRANCH       = '%s'
-          |  AND GIT_PATH     = '%s';
-        """.stripMargin
-          .format(token, row.get(0), escapeSql(row.get(1).toString), row.get(2), escapeSql(row.get(3).toString))
-      }), batchSize = limit, autoCommit = false
-    )
-
-    (rdd.map(x=> (x.get(0).toString, x.get(1).toString, x.get(2).toString, x.get(3).toString)), token)
-  }
-
-  override def store(fht: Seq[FileHashTuple])
-  : Unit = {
-    execInBatch(fht
-      .map(row => {
-            """
-              |INSERT IGNORE INTO FILE_HASH_HEAD(REPO_OWNER, REPOSITORY, BRANCH, GIT_PATH, HASH_CODE)
-              |VALUES ('%s', '%s', '%s', '%s', '%s');
-            """.stripMargin.format(row.owner, escapeSql(row.repo), row.branch, escapeSql(row.gitPath), row.fileHash)
-        })
-    )
-  }
-  override def storeHistory(fht: RDD[FileHashTuple])
+  override def storeHistory(fht: Seq[FileHashTuple])
   : Unit = {
     execInBatch(fht
       .map(row => {

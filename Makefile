@@ -8,13 +8,15 @@ SCALA_BIN_PATH=/usr/local/Cellar/scala@2.11/2.11.11/bin/
 # ------------------------------------
 JAR_NAME=target/artifacts/task.jar
 LIB_PATH=target/dependency
-RUNTIME_JARS=commons-csv-1.5.jar,json-20180130.jar,mysql-connector-java-8.0.9-rc.jar
+RUNTIME_JARS=commons-csv-1.5.jar,json-20180130.jar,mysql-connector-java-8.0.9-rc.jar,org.eclipse.jgit-4.8.0.201706111038-r.jar,jsch-0.1.54.jar
 
 
 COMMA=,
 FULL_RUNTIME_JARS=${LIB_PATH}/$(subst ${COMMA},${COMMA}${LIB_PATH}/,${RUNTIME_JARS})
 
 all: setup build run
+
+build_run: build run
 
 build:
 	mkdir -p "target/artifacts"

@@ -6,24 +6,13 @@ import org.reactorlabs.jshealth.models.FileHashTuple
   * @author shabbirahussain
   */
 trait RepoManager {
-  /** Given an URL to explore lists all files available in the directory.
-    *
-    * @param url is the git url of format "<owner>/<repository>/<branch>:<path/to/dir>"
-    * @return a sequence of directory entries from git API.
-    */
-  def listFiles(owner: String, repo:String, branch:String, gitPath: String): Seq[FileHashTuple]
 
   /** Given an URL fetches all the commits of that file.
     *
-    * @param url is the git url of format "<owner>/<repository>/<branch>:<path/to/dir>"
+    * @param owner is the owner of the git repo.
+    * @param repo is the git repository.
+    * @param branch is the branch of the git.
     * @return a sequence of file commits entries from git API.
     */
-  def getFileCommits(owner: String, repo:String, branch:String, gitPath: String): Seq[FileHashTuple]
-
-  def getProject(owner: String, repo:String, branch:String, gitPath: String): Unit
-
-  /**
-    * Reloads api keys from the key file.
-    */
-  def reloadAPIKeys(): Unit
+  def getFileCommits(owner: String, repo:String, branch:String): Seq[FileHashTuple]
 }
