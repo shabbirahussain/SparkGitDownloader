@@ -6,6 +6,7 @@ import org.apache.log4j.Level
 import org.reactorlabs.jshealth.Main.{dataStore, logger, prop, sc, spark}
 import org.reactorlabs.jshealth.models.{FileHashTuple, FileTypes}
 import org.reactorlabs.jshealth.repomanagers.{GitHubClient, RepoManager}
+import org.reactorlabs.jshealth.util
 
 /**
   * @author shabbirahussain
@@ -32,14 +33,17 @@ object Main {
 
     links
         .foreach(x=> {
-          val msg = "Processing: " + x._1 + "/" + x._2 + "/" + x._3
-          println((new Date()) + msg)
+          val msg = " Processing: " + x._1 + "/" + x._2 + "/" + x._3
+          print((new Date()) + msg)
           logger.log(Level.INFO, msg)
 
-          val files = gitHub.getFileCommits(x._1, x._2, x._3)
+          val (files, folder) = gitHub.getFileCommits(x._1, x._2, x._3)
 
           dataStore.storeHistory(files)
           dataStore.markRepoCompleted(FileHashTuple(owner = x._1, repo = x._2, branch = x._3))
+          println()
+
+          util.deleteRecursively(folder)
         })
     true
   }
@@ -48,11 +52,15 @@ object Main {
   : Unit = {
     println("Git.Main")
 
-//    var continue = true
-//    do{
-//      continue = crawlFileHistory()
-//    } while(continue)
+    var continue = true
+    do{
+      continue = crawlFileHistory()
+    } while(continue)
 
-    gitHub.getFileCommits("shabbirahussain", "SparkTest", "master")
+//
+//    val (files, folder) = gitHub.getFileCommits("007design", "Formular", "master")
+//    files.foreach(println)
+//
+//    util.deleteRecursively(folder)
   }
 }

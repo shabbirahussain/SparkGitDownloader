@@ -13,10 +13,10 @@ package org.reactorlabs.jshealth.models;
  *
  * @author shabbirahussain
  */
-case class FileHashTuple(owner:     String,
-                         repo:      String,
-                         branch:    String = "master",
-                         gitPath:   String = "",
+case class FileHashTuple(var owner:     String,
+                         var repo:      String,
+                         var branch:    String = "master",
+                         var gitPath:   String = "",
                          fileType:  FileTypes.Value = null,
                          fileHash:  String = null,
                          error:     String = null,
