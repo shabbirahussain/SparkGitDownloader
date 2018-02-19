@@ -18,11 +18,12 @@ case class FileHashTuple(owner:     String,
                          branch:    String = "master",
                          gitPath:   String = "",
                          fileType:  FileTypes.Value = null,
-                         fileHash:  String = null,
+                         var fileHash:  String = null,
                          error:     String = null,
                          commitId:  String = null,
                          commitMsg: String = null,
-                         commitTime:Long = 0){
+                         commitTime:Long = 0,
+                         var byteSize:  Long = 0){
   override def toString
   : String = {
     "{" +

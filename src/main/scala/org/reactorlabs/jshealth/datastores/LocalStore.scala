@@ -18,7 +18,7 @@ class LocalStore(batchSize: Int) extends DataStore {
     * @param batchSize is the size of the batches to use.
     */
   private def execInBatch(sqls: RDD[String], batchSize: Int = batchSize, autoCommit: Boolean = true): Unit = {
-    //sqls.foreach(println)
+//    sqls.foreach(println)
     sqls
       .mapPartitions(_.grouped(batchSize))
       .foreach(batch => {
@@ -29,7 +29,15 @@ class LocalStore(batchSize: Int) extends DataStore {
         batch
           .filter(_ != null)
           .foreach(sql => statement.addBatch(sql))
-        statement.executeBatch()
+
+        try{
+          statement.executeBatch()
+        } catch {
+          case e:Exception => {
+            batch.foreach(println)
+            throw e
+          }
+        }
 
         if (!autoCommit) connection.commit()
         connection.close()
@@ -192,9 +200,9 @@ class LocalStore(batchSize: Int) extends DataStore {
     execInBatch(fht
       .map(row => {
         """
-          |INSERT IGNORE INTO FILE_HASH_HISTORY(REPO_OWNER, REPOSITORY, BRANCH, GIT_PATH, HASH_CODE, COMMIT_ID, COMMIT_TIME)
-          |VALUES ('%s', '%s', '%s', '%s', '%s', %s, %d);
-        """.stripMargin.format(row.owner, escapeSql(row.repo), row.branch, escapeSql(row.gitPath), row.fileHash, row.commitId, row.commitTime)
+          |INSERT IGNORE INTO FILE_HASH_HISTORY(REPO_OWNER, REPOSITORY, BRANCH, GIT_PATH, HASH_CODE, BYTE_SIZE, COMMIT_ID, COMMIT_TIME, MESSAGE)
+          |VALUES ('%s', '%s', '%s', '%s', '%s', %d, '%s', %d, '%s');
+        """.stripMargin.format(escapeSql(row.owner), escapeSql(row.repo), row.branch, escapeSql(row.gitPath), row.fileHash, row.byteSize, row.commitId, row.commitTime, escapeSql(row.commitMsg))
       }))
   }
 

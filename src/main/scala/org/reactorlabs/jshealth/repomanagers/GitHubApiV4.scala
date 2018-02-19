@@ -152,6 +152,41 @@ class GitHubApiV4(apiKeysPath: String, maxRetries: Int = 2, timeout: Int = 3000)
     override def toString = """{"query": "query """ + query.replaceAll("(\\s|\n)+", " ") + """"} """
   }
 
+  /** Modifies the file hash tuple and returns it with hashcode and bytesize populated.
+    * @param fht is the input file hash tuple.
+    * @return A modified file hash tuple.
+    */
+  private def getFileHash(fht: FileHashTuple)
+  : FileHashTuple = {
+    val path = fht.commitId + ":"  + fht.gitPath
+
+    val query = Query(
+      """{
+        |  repository(owner: "%s", name: "%s") {
+        |    object(expression: "%s") {
+        |      ... on Blob {
+        |        oid
+        |        byteSize
+        |      }
+        |    }
+        |  }
+        |}
+      """.stripMargin.format(fht.owner, fht.repo, path))
+    val response = execQuery(query)
+
+    val str = Source.fromInputStream(response.get.getEntity.getContent).mkString("")
+    val jObj = new org.json.JSONObject(str)
+
+    try{
+      val obj = jObj.getJSONObject("data")
+        .getJSONObject("repository")
+        .getJSONObject("object")
+
+      fht.fileHash = obj.getString("oid")
+      fht.byteSize = obj.getLong("byteSize")
+    } catch {case e:Exception => }
+    fht
+  }
   // ===================== API Methods exposed =====================
 
   override def reloadAPIKeys()
@@ -267,14 +302,17 @@ class GitHubApiV4(apiKeysPath: String, maxRetries: Int = 2, timeout: Int = 3000)
           repo      = repo,
           gitPath   = gitPath,
           fileType  = null,
-          fileHash  = objId,
+          fileHash  = null,
           branch    = branch,
+          commitId  = objId,
           commitMsg = commitMsg,
           commitTime= commitTime)
       })
-    } catch {case e:Exception => {
-      logger.log(Level.WARN, e.getMessage + " [Req:" + query + "][Res:" + str + "]")
-    }}
-    res
+    } catch {
+      case e:Exception => {
+        logger.log(Level.WARN, e.getMessage + " [Req:" + query + "][Res:" + str + "]")
+      }
+    }
+    res.map(getFileHash)
   }
 }

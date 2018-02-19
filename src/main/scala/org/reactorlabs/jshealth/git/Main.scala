@@ -86,7 +86,9 @@ object Main {
     println((new Date()) + " Processing: " + cnt + " links.")
 
     if (cnt == 0) return false
-    val allFiles = links.flatMap[FileHashTuple](x=> gitHub.getFileCommits(x._1, x._2, x._3, x._4))
+    val allFiles = links
+      .flatMap[FileHashTuple](x=> gitHub.getFileCommits(x._1, x._2, x._3, x._4))
+      .map[FileHashTuple](x=> x)
 
     dataStore.storeHistory(allFiles)
 
@@ -102,7 +104,6 @@ object Main {
   def main(args: Array[String])
   : Unit = {
     println("Git.Main")
-//    crawlFileHeads()
 
     var continue = true
     do{
@@ -112,6 +113,9 @@ object Main {
 
 //    println(gitHub.listFiles("avelinoferreiragf", "avelino", "master", "Gestao Estrategica TI/02 - Alinhamento Estratégico de TI"))
 //    println(gitHub.listFiles("shabbirahussain", "SparkTest", "master", ""))
-//    println(gitHub.getFileCommits("shabbirahussain/SparkTest/master:src/Main.scala"))
+//    val allFiles= sc.parallelize(gitHub.getFileCommits("0xfe", "vexflow", "master", "src/strokes.js"))
+//    allFiles.foreach(println)
+//
+//    dataStore.storeHistory(allFiles)
   }
 }

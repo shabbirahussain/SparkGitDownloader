@@ -16,6 +16,8 @@ FULL_RUNTIME_JARS=${LIB_PATH}/$(subst ${COMMA},${COMMA}${LIB_PATH}/,${RUNTIME_JA
 
 all: setup build run
 
+build_run: build run
+
 build:
 	mkdir -p "target/artifacts"
 	mkdir -p "target/classes/main/resources/"
