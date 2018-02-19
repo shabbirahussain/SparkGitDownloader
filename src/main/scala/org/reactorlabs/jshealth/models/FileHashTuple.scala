@@ -7,6 +7,8 @@ package org.reactorlabs.jshealth.models;
  * @param gitPath is the project URL of the file.
  * @param fileType is the type of the file.
  * @param fileHash is the hash of the file.
+ * @param byteSize is the size of the file in bytes.
+ * @param error is a custom field carrying error message.
  * @param commitId is commit id of the file.
  * @param commitMsg is comment for the commit.
  * @param commitTime is time file is committed.
@@ -19,6 +21,7 @@ case class FileHashTuple(var owner:     String,
                          var gitPath:   String = "",
                          fileType:  FileTypes.Value = null,
                          fileHash:  String = null,
+                         byteSize:  Long = 0,
                          error:     String = null,
                          commitId:  String = null,
                          commitMsg: String = null,

@@ -68,7 +68,7 @@ class GitHubClient(extensions: Set[String], workingGitDir: String)
         .map(x=> {
           val hashCode = DigestUtils.sha1Hex(Source.fromFile(x).mkString)
           val gitPath  = x.getAbsolutePath.substring(homePathLen)
-          val size     = x.getTotalSpace
+          val size     = x.length()
           (gitPath, hashCode, size)
         })
       res.toSeq
@@ -79,6 +79,7 @@ class GitHubClient(extensions: Set[String], workingGitDir: String)
       .reverse
       .flatMap(x=> {
         print(("\b"*40) + x.getId.name())
+
         // Checkout repo commmit
         git.checkout()
 //          .setCreateBranch(true)
@@ -94,6 +95,7 @@ class GitHubClient(extensions: Set[String], workingGitDir: String)
               gitPath   = y._1,
               fileType  = FileTypes.blob,
               fileHash  = y._2,
+              byteSize  = y._3,
               commitId  = x.getId.name(),
               commitMsg = x.getShortMessage,
               commitTime= x.getCommitTime)
