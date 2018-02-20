@@ -39,20 +39,26 @@ class LocalStore(batchSize: Int) extends DataStore {
     *
     * @param sqls is the rdd of sql statements.
     */
-  private def execInBatch(sqls: Seq[String]): Unit = {
+  private def execInBatch(sqls: Seq[String], autoCommit: Boolean = true): Unit = {
     //sqls.foreach(println)
     val connection = getNewDBConnection
     val statement  = connection.createStatement()
 
-    sqls.foreach(sql => try{
-      statement.addBatch(sql)
-    } catch {
-      case e: Exception => {
-        logger.log(Level.ERROR, e.getMessage + "[" + sql + "]")
-      }
-    })
+    sqls.grouped(batchSize)
+      .foreach(batch=> {
+        val connection = getNewDBConnection
+        val statement  = connection.createStatement()
+        connection.setAutoCommit(autoCommit)
 
-    statement.executeBatch()
+        batch
+          .filter(_ != null)
+          .foreach(sql => statement.addBatch(sql))
+        statement.executeBatch()
+
+        if (!autoCommit) connection.commit()
+        connection.close()
+      })
+
     connection.close()
   }
 
@@ -118,7 +124,7 @@ class LocalStore(batchSize: Int) extends DataStore {
         """
           |INSERT IGNORE INTO FILE_HASH_HISTORY(REPO_OWNER, REPOSITORY, BRANCH, GIT_PATH, HASH_CODE, COMMIT_ID, COMMIT_TIME, BYTE_SIZE, MESSAGE)
           |VALUES ('%s', '%s', '%s', '%s', '%s', '%s', %d, %d, '%s');
-        """.stripMargin.format(row.owner, escapeSql(row.repo), row.branch, escapeSql(row.gitPath), row.fileHash, row.commitId, row.commitTime, row.byteSize, escapeSql(row.commitMsg).replaceAll("\n"," "))
+        """.stripMargin.format(row.owner, escapeSql(row.repo), row.branch, escapeSql(row.gitPath), row.fileHash, row.commitId, row.commitTime, row.byteSize, escapeSql(row.commitMsg).replaceAll("[\n|'|\\\\]"," "))
       }))
   }
 
