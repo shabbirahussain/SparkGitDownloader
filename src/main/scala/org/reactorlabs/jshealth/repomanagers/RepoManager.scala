@@ -16,5 +16,5 @@ trait RepoManager {
     * @param branch is the branch of the git.
     * @return a sequence of file commits entries from git API.
     */
-  def getFileCommits(owner: String, repo:String, branch:String): (Seq[FileHashTuple], File)
+  def getFileCommits(owner: String, repo:String, branch:String): (Seq[FileHashTuple], Option[File], String)
 }

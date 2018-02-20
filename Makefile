@@ -38,6 +38,7 @@ run:
     	--class org.reactorlabs.jshealth.Main "${JAR_NAME}" "${INPUT_PATH}"
 
 setup: clean
+	brew install git-lfs
 	mvn install dependency:copy-dependencies
 
 clean:

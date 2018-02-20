@@ -4,6 +4,7 @@ import java.util.Date
 
 import org.apache.log4j.Level
 import org.reactorlabs.jshealth.Main.{dataStore, logger, prop, sc, spark}
+import org.reactorlabs.jshealth.datastores.Keychain
 import org.reactorlabs.jshealth.models.{FileHashTuple, FileTypes}
 import org.reactorlabs.jshealth.repomanagers.{GitHubClient, RepoManager}
 import org.reactorlabs.jshealth.util
@@ -14,12 +15,11 @@ import org.reactorlabs.jshealth.util
 object Main {
   private val extensions  = prop.getProperty("git.download.extensions")
     .toLowerCase.split(",").map(_.trim).toSet
-  private val apiKeysPath = prop.getProperty("git.api.keys.path")
-  private val gitPath     = prop.getProperty("git.repo.path") //Files.createTempDir()
-  private val gitHub: RepoManager  = new GitHubClient(extensions = extensions, gitPath)
-  private val crawlBatchSize = prop.getProperty("git.crawl.batch.size").toInt
-  private val lineWidth      = prop.getProperty("console.line.width").toInt
-
+  private val keychain        = new Keychain(prop.getProperty("git.api.keys.path"))
+  private val gitPath         = prop.getProperty("git.repo.path") //Files.createTempDir()
+  private val crawlBatchSize  = prop.getProperty("git.crawl.batch.size").toInt
+  private val lineWidth       = prop.getProperty("console.line.width").toInt
+  private val gitHub: RepoManager  = new GitHubClient(extensions = extensions, gitPath, keychain)
 
   /** Crawls the files from the frontier queue and stores commit history back to database.
     *
@@ -37,13 +37,14 @@ object Main {
           print((new Date()) + msg)
           logger.log(Level.INFO, msg)
 
-          val (files, folder) = gitHub.getFileCommits(x._1, x._2, x._3)
+          val (files, folder, errmsg) = gitHub.getFileCommits(x._1, x._2, x._3)
 
           dataStore.storeHistory(files)
-          dataStore.markRepoCompleted(FileHashTuple(owner = x._1, repo = x._2, branch = x._3))
+          dataStore.markRepoCompleted(FileHashTuple(owner = x._1, repo = x._2, branch = x._3, error = errmsg))
           println()
 
-          util.deleteRecursively(folder)
+          if (folder.isDefined)
+            util.deleteRecursively(folder.get)
         })
     true
   }
