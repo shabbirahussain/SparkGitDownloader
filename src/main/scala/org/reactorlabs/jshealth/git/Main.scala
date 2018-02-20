@@ -34,7 +34,7 @@ object Main {
     links
         .foreach(x=> {
           val msg = ": " + x._1 + "/" + x._2 + "/" + x._3
-          println((new Date()) + msg)
+          println("\r" + (new Date()) + msg + (" " * (100 - msg.length)))
           logger.log(Level.INFO, msg)
 
           val (files, folder, errmsg) = gitHub.getFileCommits(x._1, x._2, x._3)

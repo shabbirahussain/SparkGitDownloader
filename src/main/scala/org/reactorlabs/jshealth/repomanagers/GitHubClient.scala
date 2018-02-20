@@ -126,7 +126,6 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
         }
         ret
       })
-    print(("\b" * 200) + "\r")
     res
   }
 
@@ -136,7 +135,7 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
     var file: Option[File] = None
     var msg:  String = null
     try{
-      print("\nCloning")
+      print("\tCloning")
       val (git, foldr) = gitCloneRepo(owner, repo)
       file = Some(foldr)
 
