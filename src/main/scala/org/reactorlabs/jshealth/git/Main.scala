@@ -59,7 +59,8 @@ object Main {
     } while(continue)
 
 //
-//    val (files, folder) = gitHub.getFileCommits("007design", "Formular", "master")
+//    val (files, folder, errmsg) = gitHub.getFileCommits("shabbirahussain", "SparkTest", "master")
+//    dataStore.storeHistory(files)
 //    files.foreach(println)
 //
 //    util.deleteRecursively(folder)

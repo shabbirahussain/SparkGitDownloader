@@ -116,9 +116,9 @@ class LocalStore(batchSize: Int) extends DataStore {
     execInBatch(fht
       .map(row => {
         """
-          |INSERT IGNORE INTO FILE_HASH_HISTORY(REPO_OWNER, REPOSITORY, BRANCH, GIT_PATH, HASH_CODE, COMMIT_ID, COMMIT_TIME, BYTE_SIZE)
-          |VALUES ('%s', '%s', '%s', '%s', '%s', '%s', %d, %d);
-        """.stripMargin.format(row.owner, escapeSql(row.repo), row.branch, escapeSql(row.gitPath), row.fileHash, row.commitId, row.commitTime, row.byteSize)
+          |INSERT IGNORE INTO FILE_HASH_HISTORY(REPO_OWNER, REPOSITORY, BRANCH, GIT_PATH, HASH_CODE, COMMIT_ID, COMMIT_TIME, BYTE_SIZE, MESSAGE)
+          |VALUES ('%s', '%s', '%s', '%s', '%s', '%s', %d, %d, '%s');
+        """.stripMargin.format(row.owner, escapeSql(row.repo), row.branch, escapeSql(row.gitPath), row.fileHash, row.commitId, row.commitTime, row.byteSize, escapeSql(row.commitMsg).replaceAll("\n"," "))
       }))
   }
 

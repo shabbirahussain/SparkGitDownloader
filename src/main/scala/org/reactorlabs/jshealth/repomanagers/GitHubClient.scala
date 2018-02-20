@@ -89,21 +89,21 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
       res.toSeq
     }
 
-    print("\t"+ ("_"*40))
+    print("\t"+ ("_" * 40))
     val res = getAllCommits(git)
       .reverse
       .flatMap(x=> {
         print(("\b"*40) + x.getId.name())
-
+        var ret: Seq[FileHashTuple] = Seq()
         try{
           // Checkout repo commmit
           git.checkout()
-            //          .setCreateBranch(true)
+            //.setCreateBranch(true)
             .setName(x.getId.name())
             .call()
 
           // build history tuple
-          return getModifiedFiles(git.getRepository.getDirectory.getParentFile)
+          ret = getModifiedFiles(git.getRepository.getDirectory.getParentFile)
             .map(y=> {
               FileHashTuple(owner = null,
                 repo      = null,
@@ -119,11 +119,10 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
         } catch {
           case e: java.lang.IllegalStateException => logger.log(Level.WARN, e.getMessage)
         }
-        Seq()
+        ret
       })
     res
   }
-
 
   override def getFileCommits(owner: String, repo: String, branch: String)
   : (Seq[FileHashTuple], Option[File], String) = {
@@ -137,12 +136,18 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
 
       print("\tProcessing")
       res = getRepoFilesHistory(git)
-        .map (x=> {
-          x.owner  = owner
-          x.repo   = repo
-          x
-        })
-
+          .map (x=> FileHashTuple(
+            owner     = owner,
+            repo      = repo,
+            branch    = x.branch,
+            gitPath   = x.gitPath,
+            fileType  = x.fileType,
+            fileHash  = x.fileHash,
+            byteSize  = x.byteSize,
+            commitId  = x.commitId,
+            commitMsg = x.commitMsg,
+            commitTime=x.commitTime
+          ))
     } catch{
       case e:NoRemoteRepositoryException => {
         msg = e.getMessage
