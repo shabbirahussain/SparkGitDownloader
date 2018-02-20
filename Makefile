@@ -33,13 +33,16 @@ build:
 
 run:
 	${SPARK_BIN_PATH}spark-submit \
-	 	--master local --driver-memory 1g \
+	 	--master local --driver-memory 2g \
 	 	--jars "${FULL_RUNTIME_JARS}" \
     	--class org.reactorlabs.jshealth.Main "${JAR_NAME}" "${INPUT_PATH}"
 
 setup: clean
-	brew install git-lfs
 	mvn install dependency:copy-dependencies
 
 clean:
 	-rm -rf target/*
+
+install:
+	brew install git-lfs
+	brew install mysql

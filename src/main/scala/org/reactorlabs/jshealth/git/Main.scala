@@ -33,15 +33,14 @@ object Main {
 
     links
         .foreach(x=> {
-          val msg = " Processing: " + x._1 + "/" + x._2 + "/" + x._3
-          print((new Date()) + msg)
+          val msg = ": " + x._1 + "/" + x._2 + "/" + x._3
+          println((new Date()) + msg)
           logger.log(Level.INFO, msg)
 
           val (files, folder, errmsg) = gitHub.getFileCommits(x._1, x._2, x._3)
 
           dataStore.storeHistory(files)
           dataStore.markRepoCompleted(FileHashTuple(owner = x._1, repo = x._2, branch = x._3, error = errmsg))
-          println()
 
           if (folder.isDefined)
             util.deleteRecursively(folder.get)

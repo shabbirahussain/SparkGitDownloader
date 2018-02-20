@@ -17,7 +17,7 @@ class LocalStore(batchSize: Int) extends DataStore {
     * @param sqls is the rdd of sql statements.
     * @param batchSize is the size of the batches to use.
     */
-  private def execInBatch(sqls: RDD[String], batchSize: Int = batchSize, autoCommit: Boolean = true): Unit = {
+  private def execInBatch(sqls: RDD[String], autoCommit: Boolean, batchSize: Int = batchSize): Unit = {
     //sqls.foreach(println)
     sqls
       .mapPartitions(_.grouped(batchSize))
@@ -39,7 +39,7 @@ class LocalStore(batchSize: Int) extends DataStore {
     *
     * @param sqls is the rdd of sql statements.
     */
-  private def execInBatch(sqls: Seq[String], autoCommit: Boolean = true): Unit = {
+  private def execInBatch(sqls: Seq[String], autoCommit: Boolean): Unit = {
     //sqls.foreach(println)
     val connection = getNewDBConnection
     val statement  = connection.createStatement()
@@ -82,7 +82,7 @@ class LocalStore(batchSize: Int) extends DataStore {
                 |  AND REPOSITORY = '%s'
               """.stripMargin.format(escapeSql(fht.error), fht.owner, escapeSql(fht.repo))
 
-    execInBatch(Seq(if(fht.error == null) sql else sqlE))
+    execInBatch(Seq(if(fht.error == null) sql else sqlE), autoCommit = true)
   }
 
   override def checkoutReposToCrawl(limit: Int = 1000)
@@ -125,14 +125,14 @@ class LocalStore(batchSize: Int) extends DataStore {
           |INSERT IGNORE INTO FILE_HASH_HISTORY(REPO_OWNER, REPOSITORY, BRANCH, GIT_PATH, HASH_CODE, COMMIT_ID, COMMIT_TIME, BYTE_SIZE, MESSAGE)
           |VALUES ('%s', '%s', '%s', '%s', '%s', '%s', %d, %d, '%s');
         """.stripMargin.format(row.owner, escapeSql(row.repo), row.branch, escapeSql(row.gitPath), row.fileHash, row.commitId, row.commitTime, row.byteSize, escapeSql(row.commitMsg).replaceAll("[\n|'|\\\\]"," "))
-      }))
+      }), autoCommit = true)
   }
 
   override def loadProjectsQueue(projects: RDD[String], flushExisting: Boolean)
   : Unit = {
     if (flushExisting) { // Truncate table
       val sql = "TRUNCATE TABLE REPOS_QUEUE;"
-      execInBatch(Seq(sql))
+      execInBatch(Seq(sql), autoCommit = true)
     }
 
     execInBatch(projects
@@ -142,6 +142,6 @@ class LocalStore(batchSize: Int) extends DataStore {
         else
           """INSERT IGNORE INTO REPOS_QUEUE(REPO_OWNER, REPOSITORY) VALUES ('%s', '%s');"""
             .stripMargin.format(parts(0), escapeSql(parts(1)))
-      }))
+      }), autoCommit = true)
   }
 }

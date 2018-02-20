@@ -11,7 +11,7 @@ import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.errors.{InvalidRemoteException, NoHeadException}
 import org.eclipse.jgit.errors.NoRemoteRepositoryException
 import org.eclipse.jgit.revwalk.RevCommit
-import org.eclipse.jgit.transport.{CredentialItem, CredentialsProvider, URIish, UsernamePasswordCredentialsProvider}
+import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
 import org.reactorlabs.jshealth.Main.logger
 import org.reactorlabs.jshealth.datastores.Keychain
 import org.reactorlabs.jshealth.models.{FileHashTuple, FileTypes}
@@ -89,17 +89,22 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
       res.toSeq
     }
 
-    print("\t"+ ("_" * 40))
-    val res = getAllCommits(git)
+    val allCommits = getAllCommits(git)
+    val cnt = allCommits.length
+
+    val res = allCommits
       .reverse
+      .zipWithIndex
       .flatMap(x=> {
-        print(("\b"*40) + x.getId.name())
+        val msg = "Processing:  %.2f%% of %7d %s".format(x._2*100.0/cnt, cnt, x._1.getId.name())
+        print(("\b" * msg.length) + msg)
+
         var ret: Seq[FileHashTuple] = Seq()
         try{
           // Checkout repo commmit
           git.checkout()
             //.setCreateBranch(true)
-            .setName(x.getId.name())
+            .setName(x._1.getId.name())
             .call()
 
           // build history tuple
@@ -107,20 +112,21 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
             .map(y=> {
               FileHashTuple(owner = null,
                 repo      = null,
-                branch    = x.getTree.getName,
+                branch    = x._1.getTree.getName,
                 gitPath   = y._1,
                 fileType  = FileTypes.blob,
                 fileHash  = y._2,
                 byteSize  = y._3,
-                commitId  = x.getId.name(),
-                commitMsg = x.getShortMessage,
-                commitTime= x.getCommitTime)
+                commitId  = x._1.getId.name(),
+                commitMsg = x._1.getShortMessage,
+                commitTime= x._1.getCommitTime)
             })
         } catch {
           case e: java.lang.IllegalStateException => logger.log(Level.WARN, e.getMessage)
         }
         ret
       })
+    print(("\b" * 200) + "\r")
     res
   }
 
@@ -130,7 +136,7 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
     var file: Option[File] = None
     var msg:  String = null
     try{
-      print("\tCloning")
+      print("\nCloning")
       val (git, foldr) = gitCloneRepo(owner, repo)
       file = Some(foldr)
 
@@ -158,8 +164,9 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
         logger.log(Level.ERROR, e.getMessage)
       }
       case e:Exception => logger.log(Level.ERROR, e.getMessage)
-        e.printStackTrace()
-        System.exit(1)
+//        e.printStackTrace()
+        msg = e.getMessage
+        logger.log(Level.ERROR, e.getMessage)
     }
     (res, file, msg)
   }
