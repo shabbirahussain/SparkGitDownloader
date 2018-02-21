@@ -6,18 +6,22 @@ import java.nio.file.Paths
 
 import com.google.common.io.Files
 import org.apache.commons.codec.digest.DigestUtils
+import org.eclipse.jgit.diff.DiffEntry
 import org.apache.log4j.Level
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.errors.{CheckoutConflictException, InvalidRemoteException, NoHeadException}
 import org.eclipse.jgit.errors.NoRemoteRepositoryException
+import org.eclipse.jgit.lib.{ObjectId, Repository}
 import org.eclipse.jgit.revwalk.RevCommit
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
+import org.eclipse.jgit.treewalk.{AbstractTreeIterator, CanonicalTreeParser, EmptyTreeIterator}
 import org.reactorlabs.jshealth.Main.logger
 import org.reactorlabs.jshealth.datastores.Keychain
 import org.reactorlabs.jshealth.models.{FileHashTuple, FileTypes}
 import org.reactorlabs.jshealth.util
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 import scala.io.{Codec, Source}
 
 /** Class responsible for downloading files from github.com. It serves as a wrapper over Git API.
@@ -67,73 +71,63 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
 
   private def getRepoFilesHistory(git: Git)
   : Seq[FileHashTuple] = {
-    var fileMap:Set[Object] = Set()
-    def getModifiedFiles(git: Git) : Seq[(String, String, Long)] = {
-      def makeFileKey(file: File): Object = (file.getPath, file.lastModified())
-      def getHashCode(file: File): String = {
-        val fis = new  FileInputStream(file)
-        val hsahCode = DigestUtils.sha1Hex(Source.fromInputStream(fis)(decoder).mkString)
-        fis.close()
-        hsahCode
-      }
-
-      val file: File = git.getRepository.getDirectory.getParentFile
-      val homePathLen = file.getAbsolutePath.length + 1
-
-      val files = util.recursiveListFiles(file)
-        .filter(_.isFile)
-        .filter(x=> extensions.contains(Files.getFileExtension(x.getName)))
-        .filter(x=> !fileMap.contains(makeFileKey(x))) // Select only new or modified files.
-      fileMap = files.map(makeFileKey).toSet
-
-      val res = files
-        .map(x=> {
-          val hashCode = getHashCode(x)
-          val gitPath  = x.getAbsolutePath.substring(homePathLen)
-          val size     = x.length()
-          (gitPath, hashCode, size)
-        })
-      res.toSeq
+    def getDiff(oldTreeIter: AbstractTreeIterator, newTreeIter: AbstractTreeIterator)
+    : mutable.Buffer[DiffEntry] = {
+      git.diff.setNewTree(newTreeIter).setOldTree(oldTreeIter).call().asScala
     }
 
-    val headFiles = getModifiedFiles(git).length
-    if (headFiles == 0) throw new Exception("No interesting files found in head. Skipping.")
-    fileMap = Set() // Reset the cache otherwise.
+    val repository  = git.getRepository
+    val reader      = repository.newObjectReader
+    var oldTreeIter: AbstractTreeIterator = new EmptyTreeIterator()
+    var newTreeIter: CanonicalTreeParser  = new CanonicalTreeParser()
 
+    // Get all interesting files from head. We will only track history of these files.
+    newTreeIter.reset(reader, repository.resolve("HEAD^{tree}"))
+    val headFiles = getDiff(oldTreeIter = oldTreeIter, newTreeIter = newTreeIter)
+      .map(x=> x.getNewPath)
+      .filter(x=> extensions.contains(Files.getFileExtension(x)))
+      .toSet
+    if (headFiles.isEmpty) throw new Exception("No interesting files found in head. Skipping.")
+
+    // Process all commits
     val allCommits = getAllCommits(git)
     val cnt = allCommits.length
 
-    val res = allCommits
-      .reverse
-      .zipWithIndex
+    val res = allCommits.reverse.zipWithIndex
+      .map(x=> {
+          val msg = "\tProcessing:  %.2f%% of %7d commits. Current Commit=%s".format(x._2*100.0/cnt, cnt, x._1.getId.name())
+          print(("\b" * msg.length) + msg)
+          x._1
+      })
       .flatMap(x=> {
-        val msg = "\tProcessing:  %.2f%% of %7d %s".format(x._2*100.0/cnt, cnt, x._1.getId.name())
-        print(("\b" * msg.length) + msg)
-
         var ret: Seq[FileHashTuple] = Seq()
         try{
-          // Checkout repo commmit
-          git.checkout()
-            //.setCreateBranch(true)
-            .setName(x._1.getId.name())
-            .call()
+          newTreeIter = new CanonicalTreeParser()
+          newTreeIter.reset(reader, repository.resolve(x.getTree.getName))
 
-          // build history tuple
-          ret = getModifiedFiles(git)
-            .map(y=> {
+          val diffs = getDiff(oldTreeIter = oldTreeIter, newTreeIter = newTreeIter)
+
+          ret = diffs
+            .filter(x=> (x.getChangeType == DiffEntry.ChangeType.ADD) || (x.getChangeType == DiffEntry.ChangeType.MODIFY))
+            .filter(x=> headFiles.contains(x.getNewPath))
+            .map(x=> (x.getNewPath , x.getNewId.name()))
+            .map(y => {
               FileHashTuple(owner = null,
                 repo      = null,
-                branch    = x._1.getTree.getName,
+                branch    = x.getTree.getName,
                 gitPath   = y._1,
                 fileType  = FileTypes.blob,
                 fileHash  = y._2,
-                byteSize  = y._3,
-                commitId  = x._1.getId.name(),
-                commitMsg = x._1.getShortMessage,
-                commitTime= x._1.getCommitTime)
+                byteSize  = -1,
+                commitId  = x.getId.name(),
+                commitMsg = x.getShortMessage,
+                commitTime= x.getCommitTime)
             })
+
+          newTreeIter.reset(reader, repository.resolve(x.getTree.getName))
+          oldTreeIter = newTreeIter
         } catch {
-          case e: IllegalStateException => logger.log(Level.WARN, e.getMessage)
+          case e: IllegalStateException     => logger.log(Level.WARN, e.getMessage)
           case e: CheckoutConflictException => logger.log(Level.WARN, e.getMessage)
         }
         ret
@@ -165,6 +159,7 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
             commitMsg = x.commitMsg,
             commitTime=x.commitTime
           ))
+
     } catch{
       case e:NoRemoteRepositoryException => {
         msg = e.getMessage
@@ -175,7 +170,7 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
         logger.log(Level.ERROR, e.getMessage)
       }
       case e:Exception => logger.log(Level.ERROR, e.getMessage)
-//        e.printStackTrace()
+        e.printStackTrace()
         msg = e.getMessage
         logger.log(Level.ERROR, e.getMessage)
     }
