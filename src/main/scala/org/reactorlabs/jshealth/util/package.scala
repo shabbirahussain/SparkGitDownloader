@@ -19,7 +19,14 @@ package object util {
   def recursiveListFiles(f: File)
   : Array[File] = {
     val these = f.listFiles
-    these ++ these.filter(_.isDirectory).flatMap(recursiveListFiles)
+      .filter(!_.isHidden)
+
+    these
+      .filter(_.isFile)
+      .++(these
+        .filter(_.isDirectory)
+        .flatMap(recursiveListFiles)
+      )
   }
 
   def main(args: Array[String]): Unit = {

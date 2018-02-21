@@ -33,7 +33,7 @@ build:
 
 run:
 	${SPARK_BIN_PATH}spark-submit \
-	 	--master local --driver-memory 2g \
+	 	--master local --driver-memory 4g \
 	 	--jars "${FULL_RUNTIME_JARS}" \
     	--class org.reactorlabs.jshealth.Main "${JAR_NAME}" "${INPUT_PATH}"
 
