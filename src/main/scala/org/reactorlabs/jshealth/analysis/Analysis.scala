@@ -48,6 +48,17 @@ object Analysis {
   val orig = joinedDf.where($"COMMIT_TIME" === $"min(COMMIT_TIME)").drop($"COMMIT_TIME").
     checkpoint(true).persist(StorageLevel.MEMORY_AND_DISK_SER_2)
 
+  // List of the original content which has modifications later on.
+  val bugFixedHash = orig.as("OLD").
+    join(orig.as("NEW"), usingColumns = Seq("REPO_OWNER", "REPOSITORY", "GIT_PATH")).
+    where($"OLD.min(COMMIT_TIME)" < $"NEW.min(COMMIT_TIME)").
+    groupBy($"REPO_OWNER", $"REPOSITORY", $"GIT_PATH", $"OLD.HASH_CODE", $"OLD.min(COMMIT_TIME)").
+    min("NEW.min(COMMIT_TIME)").
+    withColumnRenamed("min(COMMIT_TIME)", "O_FIRST_COMMIT_TIME").
+    withColumnRenamed("min(min(COMMIT_TIME))", "O_FIX_COMMIT_TIME").
+    checkpoint(true)
+
+
   // List all the copied content (hash equal).
   val copy = joinedDf.as("J").where($"COMMIT_TIME" =!= $"min(COMMIT_TIME)").drop($"min(COMMIT_TIME)").
     join(orig.as("O"), "HASH_CODE").
@@ -60,22 +71,10 @@ object Analysis {
     join(copy.as("C"), usingColumns = Seq("REPO_OWNER", "REPOSITORY", "GIT_PATH")).
     where($"max(COMMIT_TIME)" === $"C.COMMIT_TIME").
     select("REPO_OWNER", "REPOSITORY", "GIT_PATH", "C.COMMIT_TIME", "HASH_CODE").
-    checkpoint(true)
-
-
-  // List of the original content which has modifications later on.
-  val bugFixedHash = orig.as("OLD").
-    join(orig.as("NEW"), usingColumns = Seq("REPO_OWNER", "REPOSITORY", "GIT_PATH")).
-    where($"OLD.min(COMMIT_TIME)" < $"NEW.min(COMMIT_TIME)").
-    groupBy($"REPO_OWNER", $"REPOSITORY", $"GIT_PATH", $"OLD.HASH_CODE", $"OLD.min(COMMIT_TIME)").
-    min("NEW.min(COMMIT_TIME)").
-    withColumnRenamed("min(COMMIT_TIME)", "O_FIRST_COMMIT_TIME").
-    withColumnRenamed("min(min(COMMIT_TIME))", "O_FIX_COMMIT_TIME").
-    checkpoint(true)
 
   // Join of headHashOfCopy and bugFixedHash codes.
   val buggy = headHashOfCopy.as("H").join(bugFixedHash.as("F"), "HASH_CODE").
-    select($"H.REPO_OWNER", $"H.REPOSITORY", $"H.GIT_PATH", $"H.COMMIT_TIME", $"F.REPO_OWNER".as("O_REPO_OWNER"), $"F.REPOSITORY".as("O_REPOSITORY"), $"F.GIT_PATH".as("GIT_PATH"), $"F.O_FIRST_COMMIT_TIME", $"F.O_FIX_COMMIT_TIME").
+    select($"H.REPO_OWNER", $"H.REPOSITORY", $"H.GIT_PATH", $"H.COMMIT_TIME", $"F.REPO_OWNER".as("O_REPO_OWNER"), $"F.REPOSITORY".as("O_REPOSITORY"), $"F.GIT_PATH".as("O_GIT_PATH"), $"F.O_FIRST_COMMIT_TIME", $"F.O_FIX_COMMIT_TIME").
     checkpoint(true)
 
 
@@ -89,6 +88,10 @@ object Analysis {
   activeRepoBugs.show(10)
 
 
+
+  val uniqPaths = df.select("REPO_OWNER", "REPOSITORY", "GIT_PATH").distinct.count
+  val origUniqPaths = orig.select("REPO_OWNER", "REPOSITORY", "GIT_PATH").distinct.count
+  val copyUniqPaths = copy.select("REPO_OWNER", "REPOSITORY", "GIT_PATH").distinct.count
 
   def main(args: Array[String]): Unit = {
   }
