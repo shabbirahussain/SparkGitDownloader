@@ -156,8 +156,9 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
             fileHash  = x.fileHash,
             byteSize  = x.byteSize,
             commitId  = x.commitId,
-            commitMsg = x.commitMsg,
-            commitTime=x.commitTime
+            commitMsg = x.commitMsg.toLowerCase(),
+            commitTime= x.commitTime,
+            isBugFix  = x.commitMsg.toLowerCase().contains("fix")
           ))
 
     } catch{

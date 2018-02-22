@@ -25,7 +25,8 @@ case class FileHashTuple(owner:     String,
                          error:     String = null,
                          commitId:  String = null,
                          commitMsg: String = null,
-                         commitTime:Long = 0){
+                         commitTime:Long = 0,
+                         isBugFix: Boolean = false){
   override def toString
   : String = {
     "{" +
@@ -35,10 +36,12 @@ case class FileHashTuple(owner:     String,
       "'\n\t gitPath: '"    + gitPath +
       "'\n\t fileType: '"   + fileType +
       "'\n\t fileHash: '"   + fileHash +
+      "'\n\t byteSize: '"   + byteSize +
       "'\n\t error: '"      + error +
       "'\n\t commitId: '"   + commitId +
       "'\n\t commitMsg: '"  + commitMsg +
       "'\n\t commitTime: '" + commitTime +
+      "'\n\t isBugFix: '"   + isBugFix +
       "'\n}"
   }
 }
