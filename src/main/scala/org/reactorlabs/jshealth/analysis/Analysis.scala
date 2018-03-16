@@ -158,50 +158,154 @@ object Analysis {
 
   // Copy as Import
   {
-    val truePathCopy = copy.filter($"GIT_PATH".contains($"O_GIT_PATH")).persist(StorageLevel.MEMORY_AND_DISK_SER_2)
 
-    val temp = truePathCopy.
-      groupBy("REPO_OWNER", "REPOSITORY", "COMMIT_TIME", "O_REPO_OWNER", "O_REPOSITORY").
-      agg(max("O_COMMIT_TIME"), countDistinct("GIT_PATH")).
-      withColumnRenamed("count(DISTINCT GIT_PATH)", "COPY_PATH_COUNT").
-      checkpoint(true)
 
-    val allOrigJSFilesAtTimeOfCopy = joinedDf.as("ALL").
-      join(temp.as("C"),
-      joinExprs =
-        $"O_REPO_OWNER" === $"ALL.REPO_OWNER" &&
+    val truePathCopy = copy.filter($"COMMIT_TIME" === "1340894583" && $"REPO_OWNER" === "OC-Git" && $"REPOSITORY" === "LeanTemplate").
+      filter($"GIT_PATH".contains($"O_GIT_PATH")).
+      withColumn("GIT_PATH_PREFIX", $"GIT_PATH".substr(lit(0), length($"GIT_PATH") - length($"O_GIT_PATH"))).
+      groupBy("REPO_OWNER", "REPOSITORY", "COMMIT_TIME", "GIT_PATH_PREFIX", "O_REPO_OWNER", "O_REPOSITORY").
+      agg(max($"O_COMMIT_TIME")).
+      distinct.
+      checkpoint(true).persist(StorageLevel.MEMORY_AND_DISK_SER_2)
+//
+//    val truePathCopyXRepo = copy.as("C").select("REPO_OWNER", "REPOSITORY", "COMMIT_TIME", "GIT_PATH", "HASH_CODE").
+//      distinct.     // Multiple originals can be present as 2 copies committed simultaneously
+//      join(truePathCopy.as("B"),
+//        joinExprs =
+//          $"C.REPO_OWNER"  === $"B.REPO_OWNER" &&
+//          $"C.REPOSITORY"  === $"B.REPOSITORY" &&
+//          $"C.COMMIT_TIME" === $"B.COMMIT_TIME" &&
+//          $"C.GIT_PATH".startsWith($"B.GIT_PATH_PREFIX")).
+//      select($"C.REPO_OWNER", $"C.REPOSITORY", $"C.COMMIT_TIME", $"HASH_CODE".as("O_HASH_CODE"), $"O_REPO_OWNER", $"O_REPOSITORY",
+//        $"C.GIT_PATH".substr(length($"GIT_PATH_PREFIX") + 1, lit(100000)).as("O_GIT_PATH")).
+//      checkpoint(true).
+//      persist(StorageLevel.MEMORY_AND_DISK_SER_2)
+
+
+//    allJSFilesAtTimeOfCopyFromSrc.filter($"COMMIT_TIME" === "1340894583" && $"REPO_OWNER" === "OC-Git" && $"REPOSITORY" === "LeanTemplate" && $"O_REPO_OWNER" === "aFarkas").
+//    truePathCopyXRepo.filter($"COMMIT_TIME" === "1340894583" && $"REPO_OWNER" === "OC-Git" && $"REPOSITORY" === "LeanTemplate" && $"O_REPO_OWNER" === "aFarkas").
+
+
+    val allCopyPathsXRepo = copy.as("C").select("REPO_OWNER", "REPOSITORY", "COMMIT_TIME", "GIT_PATH").
+      distinct.     // Multiple originals can be present as 2 copies committed simultaneously
+      join(truePathCopy.as("B"),
+        joinExprs =
+          $"C.REPO_OWNER"  === $"B.REPO_OWNER"  &&
+          $"C.REPOSITORY"  === $"B.REPOSITORY"  &&
+          $"C.COMMIT_TIME" === $"B.COMMIT_TIME" &&
+          $"C.GIT_PATH".startsWith($"B.GIT_PATH_PREFIX")).
+      select($"C.REPO_OWNER", $"C.REPOSITORY", $"C.COMMIT_TIME", $"O_REPO_OWNER", $"O_REPOSITORY", $"GIT_PATH_PREFIX",
+        $"C.GIT_PATH".substr(length($"GIT_PATH_PREFIX") + 1, lit(100000)).as("O_GIT_PATH")).
+      checkpoint(true).
+      persist(StorageLevel.MEMORY_AND_DISK_SER_2)
+
+
+    val allJSFilesAtTimeOfCopyFromSrc = joinedDf.as("ALL").
+      join(truePathCopy.as("B"),
+        joinExprs =
+          $"O_REPO_OWNER" === $"ALL.REPO_OWNER" &&
           $"O_REPOSITORY" === $"ALL.REPOSITORY" &&
           $"max(O_COMMIT_TIME)" >= $"ALL.COMMIT_TIME").
-      groupBy("C.REPO_OWNER", "C.REPOSITORY", "C.COMMIT_TIME", "C.O_REPO_OWNER", "C.O_REPOSITORY", "C.COPY_PATH_COUNT").
-      agg(countDistinct("GIT_PATH")).
-      filter($"count(DISTINCT GIT_PATH)" === $"COPY_PATH_COUNT").
-      select($"C.REPO_OWNER",
-        $"C.REPOSITORY",
-        $"C.COMMIT_TIME",
-        $"C.O_REPO_OWNER",
-        $"C.O_REPOSITORY").
+      select($"B.REPO_OWNER", $"B.REPOSITORY", $"B.COMMIT_TIME", $"B.O_REPO_OWNER", $"B.O_REPOSITORY", $"B.GIT_PATH_PREFIX", $"ALL.GIT_PATH".as("O_GIT_PATH")).
+      distinct.
       checkpoint(true).persist(StorageLevel.MEMORY_AND_DISK_SER_2)
 
-    val copyAsImportCount = truePathCopy.join(allOrigJSFilesAtTimeOfCopy.withColumn("JNK", lit(true)),
-      usingColumns = Seq("REPO_OWNER", "REPOSITORY", "COMMIT_TIME", "O_REPO_OWNER", "O_REPOSITORY"),
-      joinType = "LEFT_OUTER").withColumn("IS_COPY_AS_IMPORT", $"JNK".isNotNull).
-      groupBy("IS_COPY_AS_IMPORT").count.collect
+    val copyPrefixesWithUnmatchedSrcFiles = allCopyPathsXRepo.withColumn("JNK", lit(false)).
+      join(allJSFilesAtTimeOfCopyFromSrc,
+        usingColumns = Seq("REPO_OWNER", "REPOSITORY", "COMMIT_TIME", "O_REPO_OWNER", "O_REPOSITORY", "GIT_PATH_PREFIX", "O_GIT_PATH"),
+        joinType = "RIGHT_OUTER").
+      filter($"JNK".isNull).
+      select("REPO_OWNER", "REPOSITORY", "COMMIT_TIME", "O_REPO_OWNER", "O_REPOSITORY", "GIT_PATH_PREFIX").distinct.
+      checkpoint(true).
+      persist(StorageLevel.MEMORY_AND_DISK_SER_2)
 
 
-    val test = truePathCopy.join(allOrigJSFilesAtTimeOfCopy.withColumn("JNK", lit(true)),
-      usingColumns = Seq("REPO_OWNER", "REPOSITORY", "COMMIT_TIME", "O_REPO_OWNER", "O_REPOSITORY"),
-      joinType = "LEFT_OUTER").withColumn("IS_COPY_AS_IMPORT", $"JNK".isNotNull).checkpoint(true).persist(StorageLevel.MEMORY_AND_DISK_SER_2)
-    copyAsImportCount
+    val allCopiesNotImportedAsCopy = allCopyPathsXRepo.join(copyPrefixesWithUnmatchedSrcFiles,
+      usingColumns = Seq("REPO_OWNER", "REPOSITORY", "COMMIT_TIME", "O_REPO_OWNER", "O_REPOSITORY", "GIT_PATH_PREFIX")).
+      checkpoint(true)
+
+//    val totalCopyCount = truePathCopyXRepo.count
+    val copiesNotImportedAsCopyCount = allCopiesNotImportedAsCopy.count
+
+
+    //      agg(countDistinct("GIT_PATH")).
+    //      filter($"count(DISTINCT GIT_PATH)" === $"COPY_PATH_COUNT").
+    //      select($"C.REPO_OWNER",
+    //        $"C.REPOSITORY",
+    //        $"C.COMMIT_TIME",
+    //        $"C.O_REPO_OWNER",
+    //        $"C.O_REPOSITORY").
+
+//    joinedDf.filter($"COMMIT_TIME" <= "1340566101" && $"REPO_OWNER" === "aFarkas" && $"REPOSITORY" === "webshim").select("GIT_PATH").distinct.count
+//
+//    copyPrefixesWithUnmatchedSrcFiles.filter($"COMMIT_TIME" === "1340894583" && $"REPO_OWNER" === "OC-Git" && $"REPOSITORY" === "LeanTemplate" && $"O_REPO_OWNER" === "aFarkas").
+//    allJSFilesAtTimeOfCopyFromSrc.filter($"COMMIT_TIME" === "1340894583" && $"REPO_OWNER" === "OC-Git" && $"REPOSITORY" === "LeanTemplate").
+//      rdd.coalesce(1, shuffle = true).saveAsTextFile("/Users/shabbirhussain/Data/project/mysql-2018-02-01/report/debug")
+//
+//    allCopyPathsXRepo.filter($"COMMIT_TIME" === "1340894583" && $"REPO_OWNER" === "OC-Git" && $"REPOSITORY" === "LeanTemplate").
+//      rdd.coalesce(1, shuffle = true).saveAsTextFile("/Users/shabbirhussain/Data/project/mysql-2018-02-01/report/debug")
+
+//
+//
+//    val copyAsImportCount = truePathCopy.join(allOrigJSFilesAtTimeOfCopy.withColumn("JNK", lit(true)),
+//      usingColumns = Seq("REPO_OWNER", "REPOSITORY", "COMMIT_TIME", "O_REPO_OWNER", "O_REPOSITORY"),
+//      joinType = "LEFT_OUTER").withColumn("IS_COPY_AS_IMPORT", $"JNK".isNotNull).
+//      groupBy("IS_COPY_AS_IMPORT").count.collect
+//
+//
+//
+//    allCopyPathsXRepo.filter($"COMMIT_TIME" === "1340894583" && $"REPO_OWNER" === "OC-Git" && $"REPOSITORY" === "LeanTemplate").rdd.coalesce(1, shuffle = true).saveAsTextFile("/Users/shabbirhussain/Data/project/mysql-2018-02-01/report/debug")
+//    truePathCopy.filter($"COMMIT_TIME" === "1340894583" && $"REPO_OWNER" === "OC-Git" && $"REPOSITORY" === "LeanTemplate").count
+//    allCopyPathsXRepo.filter($"COMMIT_TIME" === "1340894583" && $"REPO_OWNER" === "OC-Git" && $"REPOSITORY" === "LeanTemplate").select($"O_REPO_OWNER", $"O_REPOSITORY").count
+//
+//
+//    truePathCopy.filter($"COMMIT_TIME" === "1340894583" && $"REPO_OWNER" === "OC-Git" && $"REPOSITORY" === "LeanTemplate").select($"O_REPO_OWNER", $"O_REPOSITORY").distinct.show(10)
+//    allCopyPathsXRepo.filter($"COMMIT_TIME" === "1340894583" && $"REPO_OWNER" === "OC-Git" && $"REPOSITORY" === "LeanTemplate").select($"O_REPO_OWNER", $"O_REPOSITORY").distinct.show(10)
+//    truePathCopy.filter($"COMMIT_TIME" === "1340894583" && $"REPO_OWNER" === "OC-Git" && $"REPOSITORY" === "LeanTemplate" && $"O_REPO_OWNER" === "aFarkas" && $"O_REPOSITORY" === "webshim").show(10)
+//    temp.filter($"COMMIT_TIME" === "1340894583" && $"REPO_OWNER" === "OC-Git" && $"REPOSITORY" === "LeanTemplate" && $"O_REPO_OWNER" === "aFarkas" && $"O_REPOSITORY" === "webshim").show(10)
+//
+//
+//    val test = joinedDf.as("ALL").
+//      join(temp.filter($"COMMIT_TIME" === "1340894583" && $"REPO_OWNER" === "OC-Git" && $"REPOSITORY" === "LeanTemplate" && $"O_REPO_OWNER" === "aFarkas" && $"O_REPOSITORY" === "webshim").as("C"),
+//        joinExprs =
+//          $"O_REPO_OWNER" === $"ALL.REPO_OWNER" &&
+//            $"O_REPOSITORY" === $"ALL.REPOSITORY" &&
+//            $"max(O_COMMIT_TIME)" >= $"ALL.COMMIT_TIME").
+//      groupBy("C.REPO_OWNER", "C.REPOSITORY", "C.COMMIT_TIME", "C.O_REPO_OWNER", "C.O_REPOSITORY", "C.COPY_PATH_COUNT").
+//      agg(countDistinct("GIT_PATH")).
+//      filter($"count(DISTINCT GIT_PATH)" === $"COPY_PATH_COUNT").
+//      select($"C.REPO_OWNER",
+//        $"C.REPOSITORY",
+//        $"C.COMMIT_TIME",
+//        $"C.O_REPO_OWNER",
+//        $"C.O_REPOSITORY").
+//      checkpoint(true).persist(StorageLevel.MEMORY_AND_DISK_SER_2)
+//
+
+//    copy.filter($"REPO_OWNER" === "aFarkas" && $"REPOSITORY" === "webshim" && $"GIT_PATH" === "src/shims/excanvas.js").show(10)
+//    copy.filter($"REPO_OWNER" === "aFarkas" && $"REPOSITORY" === "webshim" && $"GIT_PATH" === "src/shims/excanvas.js")
+//
+//    copy.filter($"COMMIT_TIME" === "1340894583" && $"REPO_OWNER" === "OC-Git" && $"REPOSITORY" === "LeanTemplate" && $"GIT_PATH" === "public/aFarkas-webshim/src/shims/excanvas.js")
+//    copy.filter($"COMMIT_TIME" === "1340894583" && $"REPO_OWNER" === "OC-Git" && $"REPOSITORY" === "LeanTemplate" && $"O_REPO_OWNER" === "aFarkas" && $"O_REPOSITORY" === "webshim" && $"GIT_PATH" === "public/aFarkas-webshim/src/shims/excanvas.js")
+//    truePathCopy.filter($"COMMIT_TIME" === "1340894583" && $"REPO_OWNER" === "OC-Git" && $"REPOSITORY" === "LeanTemplate" && $"O_REPO_OWNER" === "aFarkas" && $"O_REPOSITORY" === "webshim" && $"GIT_PATH" === "public/aFarkas-webshim/src/shims/excanvas.js")
+//      .rdd.coalesce(1, shuffle = true).saveAsTextFile("/Users/shabbirhussain/Data/project/mysql-2018-02-01/report/debug")
+//    test.rdd.coalesce(1, shuffle = true).saveAsTextFile("/Users/shabbirhussain/Data/project/mysql-2018-02-01/report/debug")
+
+
   }
 
 
   // Chain copy res = 0
   {
     val connect = copy.
-      withColumn("C", $"REPO_OWNER" + "/" + $"REPOSITORY").
-      withColumn("O", $"O_REPO_OWNER" + "/" + $"O_REPOSITORY").
+      withColumn("C", concat($"REPO_OWNER", lit("/"), $"REPOSITORY")).
+      withColumn("O", concat($"O_REPO_OWNER", lit("/"), $"O_REPOSITORY")).
       select("O", "C").checkpoint(true).persist(StorageLevel.MEMORY_AND_DISK_SER_2)
-    val cc = connect.as("A").joinWith(connect.as("B"), $"A.O" === $"B.C")
+    val cc = connect.as("A").join(connect.as("B"), joinExprs = $"A.O" === $"B.C")
+
+
+
+
   }
 
 
