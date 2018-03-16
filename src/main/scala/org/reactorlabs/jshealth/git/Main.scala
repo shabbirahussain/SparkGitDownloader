@@ -59,7 +59,8 @@ object Main {
 
 //
 //    val (files, folder, errmsg) = gitHub.getFileCommits("shabbirahussain", "SparkTest", "master")
-//    val (files, folder, errmsg) = gitHub.getFileCommits("0mg", "userjs", "master")
+//    val (files, folder, errmsg) = gitHub.getFileCommits("aFarkas", "webshim", "master")
+//    println("\n" + files.length)
 //    dataStore.storeHistory(files)
 //    files.foreach(println)
 //

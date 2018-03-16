@@ -122,9 +122,10 @@ class LocalStore(batchSize: Int) extends DataStore {
     execInBatch(fht
       .map(row => {
         """
-          |INSERT IGNORE INTO FILE_HASH_HISTORY(REPO_OWNER, REPOSITORY, BRANCH, GIT_PATH, HASH_CODE, COMMIT_ID, COMMIT_TIME, BYTE_SIZE, MESSAGE, IS_BUG_FIX)
+          |INSERT IGNORE INTO FILE_HASH_HISTORY(REPO_OWNER, REPOSITORY, BRANCH, GIT_PATH, HASH_CODE, COMMIT_ID, COMMIT_TIME, MESSAGE, IS_BUG_FIX)
           |VALUES ('%s', '%s', '%s', '%s', '%s', '%s', %d, %d, '%s', %s);
-        """.stripMargin.format(row.owner, escapeSql(row.repo), row.branch, escapeSql(row.gitPath), row.fileHash, row.commitId, row.commitTime, row.byteSize, escapeSql(row.commitMsg).replaceAll("[\n|'|\\\\]"," "), row.isBugFix)
+        """.stripMargin.format(row.owner, escapeSql(row.repo), row.branch, escapeSql(row.gitPath), row.fileHash, row.commitId, row.commitTime, escapeSql(row.commitMsg).replaceAll("[\n|'|\\\\]"," "), row.isBugFix)
+          .replaceAll("'null'", "null")
       }), autoCommit = true)
   }
 

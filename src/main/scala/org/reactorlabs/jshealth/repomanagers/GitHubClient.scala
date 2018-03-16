@@ -87,7 +87,7 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
       .map(x=> x.getNewPath)
       .filter(x=> extensions.contains(Files.getFileExtension(x)))
       .toSet
-    if (headFiles.isEmpty) throw new Exception("No interesting files found in head. Skipping.")
+//    if (headFiles.isEmpty) throw new Exception("No interesting files found in head. Skipping.")
 
     // Process all commits
     val allCommits = getAllCommits(git)
@@ -108,9 +108,15 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
           val diffs = getDiff(oldTreeIter = oldTreeIter, newTreeIter = newTreeIter)
 
           ret = diffs
-            .filter(x=> (x.getChangeType == DiffEntry.ChangeType.ADD) || (x.getChangeType == DiffEntry.ChangeType.MODIFY))
-            .filter(x=> headFiles.contains(x.getNewPath))
-            .map(x=> (x.getNewPath , x.getNewId.name()))
+//            .filter(x=> (x.getChangeType == DiffEntry.ChangeType.ADD) || (x.getChangeType == DiffEntry.ChangeType.MODIFY))
+//            .filter(x=> headFiles.contains(x.getNewPath))
+            .filter(x=> extensions.contains(Files.getFileExtension(x.getNewPath)))
+            .map(x=> {
+              if(x.getChangeType == DiffEntry.ChangeType.DELETE)
+                (x.getOldPath,  null)
+              else
+                (x.getNewPath, x.getNewId.name())
+            })
             .map(y => {
               FileHashTuple(owner = null,
                 repo      = null,
