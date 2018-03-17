@@ -19,6 +19,7 @@ object Main {
   private val gitPath         = prop.getProperty("git.repo.path") //Files.createTempDir()
   private val crawlBatchSize  = prop.getProperty("git.crawl.batch.size").toInt
   private val lineWidth       = prop.getProperty("console.line.width").toInt
+  private val numWorkers      = prop.getProperty("spark.executor.cores").toInt
   private val gitHub: RepoManager  = new GitHubClient(extensions = extensions, gitPath, keychain)
 
   /** Crawls the files from the frontier queue and stores commit history back to database.
@@ -32,7 +33,8 @@ object Main {
     if (cnt == 0) return false
 
     links
-        .foreach(x=> {
+        .repartition(numWorkers)
+        .foreachPartitionAsync(_.foreach(x=> {
           val msg = ": " + x._1 + "/" + x._2 + "/" + x._3
           println("\r" + (new Date()) + msg + (" " * (100 - msg.length)))
           logger.log(Level.INFO, msg)
@@ -44,7 +46,7 @@ object Main {
 
           if (folder.isDefined)
             util.deleteRecursively(folder.get)
-        })
+        }))
     true
   }
 

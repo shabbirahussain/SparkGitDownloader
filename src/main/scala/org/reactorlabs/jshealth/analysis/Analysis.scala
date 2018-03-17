@@ -26,7 +26,7 @@ object Analysis {
   import org.apache.spark.sql.functions._
 
   val dbConnOptions = Map("driver" -> "com.mysql.cj.jdbc.Driver",
-    "url" -> "jdbc:mysql://localhost/reactorlabs_2018_02_01?autoReconnect=true&useSSL=false&maxReconnects=100",
+    "url" -> "jdbc:mysql://localhost/reactorlabs_2018_02_01?serverTimezone=UTC&autoReconnect=true&useSSL=false&maxReconnects=10",
     "username"  -> "reactorlabs",
     "user"      -> "reactorlabs",
     "password"  -> "gthe123",
@@ -37,18 +37,18 @@ object Analysis {
   sc.setCheckpointDir("/Users/shabbirhussain/Data/project/mysql-2018-02-01/temp/")
   sc.setLogLevel("ERROR")
 
-  val df = sqlContext.read.format("jdbc").options(dbConnOptions).
-//    option("dbtable", "TEMP").load().
-    option("dbtable", "FILE_HASH_HISTORY").load().
+  val joinedDf = sqlContext.read.format("jdbc").options(dbConnOptions).
+    option("dbtable", "TEMP").
+//    option("dbtable", "FILE_HASH_HISTORY").
+    load().
     select($"REPO_OWNER", $"REPOSITORY", $"GIT_PATH", $"HASH_CODE", $"COMMIT_TIME".cast(sql.types.LongType)).
+    withColumn("min(COMMIT_TIME)", min("COMMIT_TIME").over(Window.partitionBy("HASH_CODE"))).
     persist(StorageLevel.MEMORY_AND_DISK_SER_2)
-  val joinedDf = df.join(df.groupBy("HASH_CODE").min("COMMIT_TIME"), usingColumn = "HASH_CODE").
-    persist(StorageLevel.MEMORY_AND_DISK_SER_2)
-
 
   // List all original content based on first commit.
   val orig = joinedDf.where($"COMMIT_TIME" === $"min(COMMIT_TIME)").drop($"COMMIT_TIME").
     checkpoint(true).persist(StorageLevel.MEMORY_AND_DISK_SER_2)
+
   // List all the copied content (hash equal).
   val copy = joinedDf.as("J").where($"COMMIT_TIME" =!= $"min(COMMIT_TIME)").drop($"min(COMMIT_TIME)").
     join(orig.
@@ -60,7 +60,7 @@ object Analysis {
       "HASH_CODE").
     // Prevent file revert getting detected as copy
     filter($"J.REPO_OWNER" =!= $"O.O_REPO_OWNER" || $"J.REPOSITORY" =!= $"O.O_REPOSITORY" || $"J.GIT_PATH" =!= $"O.O_GIT_PATH").
-    select("J.REPO_OWNER", "J.REPOSITORY", "J.GIT_PATH", "J.COMMIT_TIME", "O_REPO_OWNER", "O_REPOSITORY", "O_GIT_PATH", "O_COMMIT_TIME", "HASH_CODE").
+    select("REPO_OWNER", "REPOSITORY", "GIT_PATH", "COMMIT_TIME", "O_REPO_OWNER", "O_REPOSITORY", "O_GIT_PATH", "O_COMMIT_TIME", "HASH_CODE").
     checkpoint(true).persist(StorageLevel.MEMORY_AND_DISK_SER_2)
 
 

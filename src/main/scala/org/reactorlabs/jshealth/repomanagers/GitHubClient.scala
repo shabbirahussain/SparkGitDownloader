@@ -82,11 +82,11 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
     var newTreeIter: CanonicalTreeParser  = new CanonicalTreeParser()
 
     // Get all interesting files from head. We will only track history of these files.
-    newTreeIter.reset(reader, repository.resolve("HEAD^{tree}"))
-    val headFiles = getDiff(oldTreeIter = oldTreeIter, newTreeIter = newTreeIter)
-      .map(x=> x.getNewPath)
-      .filter(x=> extensions.contains(Files.getFileExtension(x)))
-      .toSet
+//    newTreeIter.reset(reader, repository.resolve("HEAD^{tree}"))
+//    val headFiles = getDiff(oldTreeIter = oldTreeIter, newTreeIter = newTreeIter)
+//      .map(x=> x.getNewPath)
+//      .filter(x=> extensions.contains(Files.getFileExtension(x)))
+//      .toSet
 //    if (headFiles.isEmpty) throw new Exception("No interesting files found in head. Skipping.")
 
     // Process all commits
@@ -110,13 +110,13 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
           ret = diffs
 //            .filter(x=> (x.getChangeType == DiffEntry.ChangeType.ADD) || (x.getChangeType == DiffEntry.ChangeType.MODIFY))
 //            .filter(x=> headFiles.contains(x.getNewPath))
-            .filter(x=> extensions.contains(Files.getFileExtension(x.getNewPath)))
-            .map(x=> {
-              if(x.getChangeType == DiffEntry.ChangeType.DELETE)
-                (x.getOldPath,  null)
+            .map(y=> {
+              if(y.getChangeType == DiffEntry.ChangeType.DELETE)
+                (y.getOldPath,  null)
               else
-                (x.getNewPath, x.getNewId.name())
+                (y.getNewPath, y.getNewId.name())
             })
+            .filter(y=> extensions.contains(Files.getFileExtension(y._1)))
             .map(y => {
               FileHashTuple(owner = null,
                 repo      = null,
