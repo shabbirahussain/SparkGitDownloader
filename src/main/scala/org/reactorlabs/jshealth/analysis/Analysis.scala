@@ -5,17 +5,6 @@ import java.util
 import org.apache.spark.SparkContext
 import org.reactorlabs.jshealth.Main.{prop, sc, spark}
 
-
-//  val windowSpec = Window.partitionBy($"HASH_CODE").
-//    orderBy($"COMMIT_TIME".asc)
-//  val ranked = rdd.
-//    select($"REPO_OWNER", $"REPOSITORY", $"GIT_PATH", $"HASH_CODE", $"COMMIT_TIME",
-//    rank().over(windowSpec).as("RANK")).
-//    persist(StorageLevel.MEMORY_AND_DISK_SER_2)
-//
-//  val orig = rdd.filter($"RANK" === 1)
-//  val repl = rdd.filter($"RANK" =!= 1)
-
 object Analysis {
   import org.apache.spark.sql.{SQLContext, SparkSession, Column, DataFrame}
   import org.apache.spark.storage.StorageLevel
@@ -37,12 +26,15 @@ object Analysis {
   sc.setLogLevel("ERROR")
 
   val allData = sqlContext.read.format("jdbc").options(dbConnOptions).
-    option("dbtable", "TEMP").
-//    option("dbtable", "FILE_HASH_HISTORY").
+//    option("dbtable", "TEMP").
+    option("dbtable", "FILE_HASH_HISTORY").
     load().
     select($"REPO_OWNER", $"REPOSITORY", $"GIT_PATH", $"HASH_CODE", $"COMMIT_TIME".cast(sql.types.LongType)).
-    withColumn("min(COMMIT_TIME)", min("COMMIT_TIME").over(Window.partitionBy("HASH_CODE"))).
-    withColumn("FIX_COMMIT_TIME",  lead("COMMIT_TIME", 1).over(Window.partitionBy("REPO_OWNER", "REPOSITORY", "GIT_PATH").orderBy("COMMIT_TIME"))).
+    withColumn("min(COMMIT_TIME)", min("COMMIT_TIME").over(Window.partitionBy("REPO_OWNER", "REPOSITORY", "GIT_PATH"))).
+    repartition($"REPO_OWNER", $"REPOSITORY", $"GIT_PATH").
+    withColumn("FIX_COMMIT_TIME", lead("COMMIT_TIME", 1).over(Window.partitionBy("REPO_OWNER", "REPOSITORY", "GIT_PATH").orderBy("COMMIT_TIME"))).
+    withColumn("FIX_HASH_CODE"  , lead("HASH_CODE"  , 1).over(Window.partitionBy("REPO_OWNER", "REPOSITORY", "GIT_PATH").orderBy("COMMIT_TIME"))).
+    checkpoint(true).
     persist(StorageLevel.MEMORY_AND_DISK_SER)
 
   // List all original content based on first commit.
@@ -54,8 +46,9 @@ object Analysis {
       $"GIT_PATH"   .as("O_GIT_PATH"),
       $"COMMIT_TIME".as("O_COMMIT_TIME"),
       $"HASH_CODE",
-      $"FIX_COMMIT_TIME".as("O_FIX_COMMIT_TIME")
-    ).persist(StorageLevel.MEMORY_AND_DISK_SER)
+      $"FIX_COMMIT_TIME".as("O_FIX_COMMIT_TIME"),
+      $"FIX_HASH_CODE"  .as("O_FIX_HASH_CODE")
+    ).checkpoint(true).persist(StorageLevel.DISK_ONLY)
 
   // List all the copied content (hash equal).
   val copy = allData.where($"COMMIT_TIME" =!= $"min(COMMIT_TIME)" && $"HASH_CODE".isNotNull).drop($"min(COMMIT_TIME)").
@@ -63,20 +56,24 @@ object Analysis {
     // Prevent file revert getting detected as copy
     filter(
       $"REPO_OWNER" =!= $"O_REPO_OWNER" ||
-      $"REPOSITORY" =!= $"O_REPOSITORY" // || $"GIT_PATH"   =!= $"O_GIT_PATH" // TODO: When should we consider copy within a repo?
-    ).checkpoint(true).persist(StorageLevel.MEMORY_AND_DISK_SER)
-
-  // List of all the copied content which is at the head of that path.
-  val copiesAtHead = copy.filter($"FIX_COMMIT_TIME".isNull)
+      $"REPOSITORY" =!= $"O_REPOSITORY" ||
+      $"GIT_PATH"   =!= $"O_GIT_PATH"       // TODO: When should we consider copy within a repo?
+    ).filter($"O_FIX_HASH_CODE".isNotNull). // Ignore immediate moves
+    checkpoint(true).persist(StorageLevel.DISK_ONLY)
 
   // Obsolete code analysis
   val (uniqPaths, origUniqPaths, copyUniqPaths, activeRepoObsoleteCopyCount, divergentUniqPaths) = {
+    // List of all the copied content which is at the head of that path.
+    val copiesAtHead = copy.filter($"FIX_COMMIT_TIME".isNull)
 
     // Repos which have a later commit than bug. (Only active js development.)
+    // TODO: will moving a file count towards obsolete code?
     val activeRepoObsoleteCopy = allData.
       groupBy("REPO_OWNER", "REPOSITORY").max("COMMIT_TIME").
       withColumnRenamed("max(COMMIT_TIME)", "REPO_LAST_COMMIT_TIME").
-      join(copiesAtHead.filter($"O_FIX_COMMIT_TIME".isNotNull), // Specifies original was fixed after
+      join(copiesAtHead.
+          filter($"O_FIX_COMMIT_TIME".isNotNull). // Specifies original was fixed after
+          filter($"O_FIX_HASH_CODE".isNotNull),   // The fix wasn't a delete
         Seq("REPO_OWNER", "REPOSITORY")).
       withColumn("IS_ACTIVE", $"REPO_LAST_COMMIT_TIME" > $"O_FIX_COMMIT_TIME").
       checkpoint(true)
@@ -145,6 +142,7 @@ object Analysis {
   val copyAsImportCount = {
     // Copy path resembles original path
     val truePathCopy = copy.//filter($"COMMIT_TIME" === "1340894583" && $"REPO_OWNER" === "OC-Git" && $"REPOSITORY" === "LeanTemplate").
+      filter($"REPO_OWNER" =!= $"O_REPO_OWNER" || $"REPOSITORY" =!= $"O_REPOSITORY").
       filter($"GIT_PATH".contains($"O_GIT_PATH")).
       withColumn("GIT_PATH_PREFIX", $"GIT_PATH".substr(lit(0), length($"GIT_PATH") - length($"O_GIT_PATH"))).
       groupBy("REPO_OWNER", "REPOSITORY", "COMMIT_TIME", "GIT_PATH_PREFIX", "O_REPO_OWNER", "O_REPOSITORY").
@@ -152,7 +150,7 @@ object Analysis {
       distinct.
       checkpoint(true).persist(StorageLevel.MEMORY_AND_DISK_SER)
 
-    val allCopyPathsXRepo = copy.as("C").select("REPO_OWNER", "REPOSITORY", "COMMIT_TIME", "GIT_PATH").
+    val allCopyPathsXRepo = copy.as("C").select("REPO_OWNER", "REPOSITORY", "GIT_PATH", "COMMIT_TIME").
       distinct.     // Multiple originals can be present as 2 copies committed simultaneously
       join(truePathCopy.as("B"),
         joinExprs =
@@ -177,14 +175,16 @@ object Analysis {
           $"O_REPO_OWNER" === $"ALL.REPO_OWNER" &&
           $"O_REPOSITORY" === $"ALL.REPOSITORY" &&
           $"max(O_COMMIT_TIME)" >= $"ALL.COMMIT_TIME").
+      withColumn("RANK", rank().over(Window.partitionBy($"ALL.REPO_OWNER", $"ALL.REPOSITORY", $"ALL.O_GIT_PATH").orderBy($"ALL.COMMIT_TIME".desc))).
+      filter($"RANK" === 1).filter($"HASH_CODE".isNotNull).
       select(
-        $"B.REPO_OWNER",
-        $"B.REPOSITORY",
+        $"ALL.REPO_OWNER",
+        $"ALL.REPOSITORY",
+        $"ALL.GIT_PATH".as("O_GIT_PATH"),
         $"B.GIT_PATH_PREFIX",
         $"B.COMMIT_TIME",
         $"B.O_REPO_OWNER",
-        $"B.O_REPOSITORY",
-        $"ALL.GIT_PATH".as("O_GIT_PATH")).
+        $"B.O_REPOSITORY").
       distinct
 
 
