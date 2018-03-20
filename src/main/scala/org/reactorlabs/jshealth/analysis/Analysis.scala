@@ -139,16 +139,19 @@ object Analysis {
       agg(max($"O_COMMIT_TIME")).
       persist(StorageLevel.MEMORY_AND_DISK_SER)
 
-    // Cross join all paths within a copied folder with all the orig repos form that contributed to this folder.
+    // Cross join all paths fingerprint within a copied folder with all the orig repos form that contributed to this folder.
     val allCopyPathsXRepo = copy.select("REPO_OWNER", "REPOSITORY", "GIT_PATH", "COMMIT_TIME").
       distinct.           // Using distinct as multiple originals can be present as 2 copies committed simultaneously
       join(truePathCopy, usingColumns = Seq("REPO_OWNER", "REPOSITORY", "COMMIT_TIME")).
       filter($"GIT_PATH".startsWith($"GIT_PATH_PREFIX")).
-      withColumn("O_GIT_PATH", $"GIT_PATH".substr(length($"GIT_PATH_PREFIX") + 1, lit(100000))).drop("GIT_PATH")
+      withColumn("O_GIT_PATH", $"GIT_PATH".substr(length($"GIT_PATH_PREFIX") + 1, lit(100000))).drop("GIT_PATH").
+      groupBy("REPO_OWNER", "REPOSITORY", "COMMIT_TIME", "GIT_PATH_PREFIX", "O_REPO_OWNER", "O_REPOSITORY", "max(O_COMMIT_TIME)").
+      agg(sum(crc32($"O_GIT_PATH")), count("O_GIT_PATH"))
+
 
     // Now get all the files present in the original repo (not just orig but all files within it) upto a max( original commit point) used by the copier.
-    val w1 = Window.partitionBy($"REPO_OWNER", $"REPOSITORY", $"GIT_PATH", $"max(O_COMMIT_TIME)").orderBy($"COMMIT_TIME".desc)
-    val allJSFilesAtTimeOfCopyFromSrc = allData.
+    val w1 = Window.partitionBy($"REPO_OWNER", $"REPOSITORY", $"crc32(O_GIT_PATH)", $"max(O_COMMIT_TIME)").orderBy($"COMMIT_TIME".desc)
+    val allJSFilesAtTimeOfCopyFromSrc = allData.withColumn("crc32(O_GIT_PATH)", crc32($"GIT_PATH")).
       join(truePathCopy.select("O_REPO_OWNER", "O_REPOSITORY", "max(O_COMMIT_TIME)").distinct, // just get unique files at required timestamps from the orig repo.
         joinExprs =
           $"O_REPO_OWNER" === $"REPO_OWNER" &&
@@ -157,28 +160,20 @@ object Analysis {
       withColumn("RANK", rank().over(w1)).
       filter($"RANK" === 1).            // Pick latest commit till that time.
       filter($"HASH_CODE".isNotNull).   // Pick all files that aren't in deleted state.
-      select(
-        $"O_REPO_OWNER",
-        $"O_REPOSITORY",
-        $"max(O_COMMIT_TIME)",
-        $"GIT_PATH".as("O_GIT_PATH")
-      )
+      groupBy("O_REPO_OWNER", "O_REPOSITORY", "max(O_COMMIT_TIME)").
+      agg(sum($"crc32(O_GIT_PATH)"), count("crc32(O_GIT_PATH)").as("count(O_GIT_PATH)"))
 
-    // Do outer join to find if all the paths from original at the time of copy exists in the copied folder.
-    val w2 = Window.partitionBy("REPO_OWNER", "REPOSITORY", "GIT_PATH_PREFIX", "COMMIT_TIME", "O_REPO_OWNER", "O_REPOSITORY")
-    val copyPrefixesWithUnmatchedSrcFiles = allCopyPathsXRepo.withColumn("JNK", lit(false)).
+    // Do join to find if all the paths from original at the time of copy exists in the copied folder.
+    val copyPrefixesWithUnmatchedSrcFiles = allCopyPathsXRepo.
       join(allJSFilesAtTimeOfCopyFromSrc,
-        usingColumns = Seq("max(O_COMMIT_TIME)", "O_REPO_OWNER", "O_REPOSITORY", "O_GIT_PATH"),
-        joinType = "RIGHT_OUTER").
-      withColumn("IS_COPIED_AS_IMPORT", count("JNK").over(w2) === count("*").over(w2)).
-      filter($"IS_COPIED_AS_IMPORT").drop("JNK", "IS_COPIED_AS_IMPORT").
+        usingColumns = Seq("max(O_COMMIT_TIME)", "O_REPO_OWNER", "O_REPOSITORY", "sum(crc32(O_GIT_PATH))", "count(O_GIT_PATH)")).
       checkpoint(true).
       persist(StorageLevel.MEMORY_AND_DISK_SER)
 
-    truePathCopy.unpersist(true)
+//    truePathCopy.unpersist(true)
 
     // TODO: What should we consider that path if it belongs to copy as import and then changed to something else?
-    val copyAsImportCount = copyPrefixesWithUnmatchedSrcFiles.select("REPO_OWNER", "REPOSITORY", "GIT_PATH_PREFIX", "O_GIT_PATH").distinct.count
+    val copyAsImportCount = copyPrefixesWithUnmatchedSrcFiles.agg(sum("count(O_GIT_PATH)")).collect
 
     copyAsImportCount
   }
