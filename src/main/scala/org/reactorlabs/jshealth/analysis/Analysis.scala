@@ -30,16 +30,15 @@ object Analysis {
     StructField("REPO_OWNER",   StringType, nullable = false),
     StructField("REPOSITORY",   StringType, nullable = false),
     StructField("GIT_PATH",     StringType, nullable = false),
-    StructField("HASH_CODE",    StringType, nullable = true),
+    StructField("HASH_CODE1",    StringType, nullable = true),
     StructField("COMMIT_TIME",  LongType,   nullable = false)))
 
-  val allData1 = sqlContext.read.format("csv").
+  // TODO: merge these two commands
+  val allData = sqlContext.read.format("csv").
     option("delimiter",",").option("quote","\"").
     schema(customSchema).
-    load("/Users/shabbirhussain/Data/project/dumps/FILE_HASH_HISTORY.csv.bz2").limit(10000).
-    persist(StorageLevel.MEMORY_AND_DISK_SER)
-
-  val allData = allData1.
+    load("/Users/shabbirhussain/Data/project/dumps/FILE_HASH_HISTORY.csv.bz2").
+    withColumn("HASH_CODE", when($"HASH_CODE" === "\\N", lit(null)).otherwise($"HASH_CODE")).
     select($"REPO_OWNER", $"REPOSITORY", $"GIT_PATH", $"HASH_CODE", $"COMMIT_TIME".cast(sql.types.LongType)).
     withColumn("min(COMMIT_TIME)", min("COMMIT_TIME").over(Window.partitionBy("HASH_CODE"))).
     repartition($"REPO_OWNER", $"REPOSITORY", $"GIT_PATH").
@@ -84,6 +83,12 @@ object Analysis {
     filter($"HASH_CODE".isNotNull).                 // Paths which aren't deleted
     select("REPO_OWNER", "REPOSITORY", "GIT_PATH").distinct.count
 
+  /* Special case when two files are together checkedin both unique. So both of them become original. Now one file is deleted and commited again.
+  // This makes this path as copy coz file was deleted and now this path with higher timerstamp gets connected to other original.
+  allData.filter($"GIT_PATH" === "client/node_modules/azure/node_modules/xmlbuilder/lib/XMLBuilder.js").orderBy("COMMIT_TIME").show
+  orig.filter($"GIT_PATH" === "client/node_modules/azure/node_modules/xmlbuilder/lib/XMLBuilder.js").orderBy("COMMIT_TIME").show
+  copy.filter($"GIT_PATH" === "client/node_modules/azure/node_modules/xmlbuilder/lib/XMLBuilder.js").orderBy("COMMIT_TIME").take(1)
+  */
 
   // Divergent Analysis
   val divergentCopyCount = copy.select("REPO_OWNER", "REPOSITORY", "GIT_PATH").distinct.
@@ -97,11 +102,6 @@ object Analysis {
     ).count
 
 
-
-
-
-  
-
   // Obsolete code analysis
   val activeRepoObsoleteCopyCount = {
     // List of all the copied content which is at the head of that path.
@@ -109,22 +109,20 @@ object Analysis {
       filter($"HASH_CODE" === $"HEAD_HASH_CODE"). // Head only
       filter($"HASH_CODE".isNotNull)              // Paths which aren't deleted
 
+    val repoLastCommitTime = allData.
+      groupBy("REPO_OWNER", "REPOSITORY").max("COMMIT_TIME").
+      withColumnRenamed("max(COMMIT_TIME)", "REPO_LAST_COMMIT_TIME")
+
     // Repos which have a later commit than bug. (Only active js development.)
     // TODO: will moving a file count towards obsolete code?
     // TODO: Merge following two commands
-    val activeRepoObsoleteCopy = allData.
-      groupBy("REPO_OWNER", "REPOSITORY").max("COMMIT_TIME").
-      withColumnRenamed("max(COMMIT_TIME)", "REPO_LAST_COMMIT_TIME").
-      join(undeletedCopiesAtHead.
-          filter($"O_HEAD_HASH_CODE" =!= $"O_HASH_CODE"), // Specifies original was fixed after
-          // filter($"O_FIX_HASH_CODE".isNotNull),   // Specifies original was fixed after and the fix wasn't a delete
-        Seq("REPO_OWNER", "REPOSITORY")).
+    val activeRepoObsoleteCopyCount = undeletedCopiesAtHead.
+      filter($"O_HEAD_HASH_CODE" =!= $"HASH_CODE"). // Specifies original was fixed after
+      // filter($"O_FIX_HASH_CODE".isNotNull).      // Specifies original was fixed after and the fix wasn't a delete
+      join(repoLastCommitTime, Seq("REPO_OWNER", "REPOSITORY")).
       withColumn("IS_ACTIVE", $"REPO_LAST_COMMIT_TIME" > $"O_HEAD_COMMIT_TIME").
       select("REPO_OWNER", "REPOSITORY", "GIT_PATH", "IS_ACTIVE").distinct.
-      persist(StorageLevel.DISK_ONLY)
-    val activeRepoObsoleteCopyCount = activeRepoObsoleteCopy.groupBy("IS_ACTIVE").count.collect
-
-    activeRepoObsoleteCopyCount
+      groupBy("IS_ACTIVE").count.collect
   }
 
 
