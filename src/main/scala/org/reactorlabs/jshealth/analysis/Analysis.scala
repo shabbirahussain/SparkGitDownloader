@@ -14,13 +14,6 @@ object Analysis {
   import org.apache.spark.sql.expressions.Window
   import org.apache.spark.sql.functions._
 
-//  val dbConnOptions = Map("driver" -> "com.mysql.cj.jdbc.Driver",
-//    "url" -> "jdbc:mysql://localhost/reactorlabs_2018_02_01?serverTimezone=UTC&autoReconnect=true&useSSL=false&maxReconnects=10",
-//    "username"  -> "reactorlabs",
-//    "user"      -> "reactorlabs",
-//    "password"  -> "gthe123",
-//    "schema"    -> "reactorlabs_2018_02_01")
-
   val sqlContext: SQLContext = spark.sqlContext
   import sqlContext.implicits._
   sc.setCheckpointDir("/Users/shabbirhussain/Data/project/mysql-2018-02-01/temp/")
@@ -30,10 +23,9 @@ object Analysis {
     StructField("REPO_OWNER",   StringType, nullable = false),
     StructField("REPOSITORY",   StringType, nullable = false),
     StructField("GIT_PATH",     StringType, nullable = false),
-    StructField("HASH_CODE1",    StringType, nullable = true),
+    StructField("HASH_CODE",    StringType, nullable = true),
     StructField("COMMIT_TIME",  LongType,   nullable = false)))
 
-  // TODO: merge these two commands
   val allData = sqlContext.read.format("csv").
     option("delimiter",",").option("quote","\"").
     schema(customSchema).
@@ -67,28 +59,36 @@ object Analysis {
       $"REPO_OWNER" =!= $"O_REPO_OWNER" ||
       $"REPOSITORY" =!= $"O_REPOSITORY" ||
       $"GIT_PATH"   =!= $"O_GIT_PATH"
-    ).filter(!($"O_HEAD_HASH_CODE".isNull && $"O_HEAD_COMMIT_TIME" === $"COMMIT_TIME")). // Ignore immediate moves
+    ).
+    filter(!($"O_HEAD_HASH_CODE".isNull && $"O_HEAD_COMMIT_TIME" === $"COMMIT_TIME")). // Ignore immediate moves
     checkpoint(true).persist(StorageLevel.MEMORY_AND_DISK_SER)
 
-  val allUniqPathsCount = allData.
-    filter($"HASH_CODE" === $"HEAD_HASH_CODE").     // Head only
-    filter($"HASH_CODE".isNotNull).                 // Paths which aren't deleted
-    select("REPO_OWNER", "REPOSITORY", "GIT_PATH").distinct.count
-  val origUniqPathsCount = orig.
-    filter($"HASH_CODE" === $"O_HEAD_HASH_CODE").   // Head only
-    filter($"HASH_CODE".isNotNull).                 // Paths which aren't deleted
-    select("O_REPO_OWNER", "O_REPOSITORY", "O_GIT_PATH").distinct.count
-  val copyUniqPathsCount = copy.
-    filter($"HASH_CODE" === $"HEAD_HASH_CODE").     // Head only
-    filter($"HASH_CODE".isNotNull).                 // Paths which aren't deleted
-    select("REPO_OWNER", "REPOSITORY", "GIT_PATH").distinct.count
+  // Count unique files in the head.
+  val (allUniqPathsCount, origUniqPathsCount, copyUniqPathsCount) = {
 
-  /* Special case when two files are together checkedin both unique. So both of them become original. Now one file is deleted and commited again.
-  // This makes this path as copy coz file was deleted and now this path with higher timerstamp gets connected to other original.
-  allData.filter($"GIT_PATH" === "client/node_modules/azure/node_modules/xmlbuilder/lib/XMLBuilder.js").orderBy("COMMIT_TIME").show
-  orig.filter($"GIT_PATH" === "client/node_modules/azure/node_modules/xmlbuilder/lib/XMLBuilder.js").orderBy("COMMIT_TIME").show
-  copy.filter($"GIT_PATH" === "client/node_modules/azure/node_modules/xmlbuilder/lib/XMLBuilder.js").orderBy("COMMIT_TIME").take(1)
-  */
+    /* Special case when two files are together checkedin both unique. So both of them become original. Now one file is deleted and commited again.
+     * This makes this path as copy coz file was deleted and now this path with higher timerstamp gets connected to other original.
+
+    // allData.filter($"GIT_PATH" === "client/node_modules/azure/node_modules/xmlbuilder/lib/XMLBuilder.js").orderBy("COMMIT_TIME").show
+    // orig.filter($"GIT_PATH" === "client/node_modules/azure/node_modules/xmlbuilder/lib/XMLBuilder.js").orderBy("COMMIT_TIME").show
+    // copy.filter($"GIT_PATH" === "client/node_modules/azure/node_modules/xmlbuilder/lib/XMLBuilder.js").orderBy("COMMIT_TIME").take(1)
+    */
+
+    val allUniqPathsCount = allData.
+      filter($"HASH_CODE" === $"HEAD_HASH_CODE").     // Head only
+      filter($"HASH_CODE".isNotNull).                 // Paths which aren't deleted
+      select("REPO_OWNER", "REPOSITORY", "GIT_PATH").distinct.count
+    val origUniqPathsCount = orig.
+      filter($"HASH_CODE" === $"O_HEAD_HASH_CODE").   // Head only
+      filter($"HASH_CODE".isNotNull).                 // Paths which aren't deleted
+      select("O_REPO_OWNER", "O_REPOSITORY", "O_GIT_PATH").distinct.count
+    val copyUniqPathsCount = copy.
+      filter($"HASH_CODE" === $"HEAD_HASH_CODE").     // Head only
+      filter($"HASH_CODE".isNotNull).                 // Paths which aren't deleted
+      select("REPO_OWNER", "REPOSITORY", "GIT_PATH").distinct.count
+
+    (allUniqPathsCount, origUniqPathsCount, copyUniqPathsCount)
+  }
 
   // Divergent Analysis
   val divergentCopyCount = copy.select("REPO_OWNER", "REPOSITORY", "GIT_PATH").distinct.
@@ -123,8 +123,9 @@ object Analysis {
       withColumn("IS_ACTIVE", $"REPO_LAST_COMMIT_TIME" > $"O_HEAD_COMMIT_TIME").
       select("REPO_OWNER", "REPOSITORY", "GIT_PATH", "IS_ACTIVE").distinct.
       groupBy("IS_ACTIVE").count.collect
-  }
 
+    activeRepoObsoleteCopyCount
+  }
 
 
   // Copy as Import
@@ -136,64 +137,50 @@ object Analysis {
       withColumn("GIT_PATH_PREFIX", $"GIT_PATH".substr(lit(0), length($"GIT_PATH") - length($"O_GIT_PATH"))).
       groupBy("REPO_OWNER", "REPOSITORY", "COMMIT_TIME", "GIT_PATH_PREFIX", "O_REPO_OWNER", "O_REPOSITORY").
       agg(max($"O_COMMIT_TIME")).
+      persist(StorageLevel.MEMORY_AND_DISK_SER)
+
+    // Cross join all paths within a copied folder with all the orig repos form that contributed to this folder.
+    val allCopyPathsXRepo = copy.select("REPO_OWNER", "REPOSITORY", "GIT_PATH", "COMMIT_TIME").
+      distinct.           // Using distinct as multiple originals can be present as 2 copies committed simultaneously
+      join(truePathCopy, usingColumns = Seq("REPO_OWNER", "REPOSITORY", "COMMIT_TIME")).
+      filter($"GIT_PATH".startsWith($"GIT_PATH_PREFIX")).
+      withColumn("O_GIT_PATH", $"GIT_PATH".substr(length($"GIT_PATH_PREFIX") + 1, lit(100000))).drop("GIT_PATH")
+
+    // Now get all the files present in the original repo (not just orig but all files within it) upto a max( original commit point) used by the copier.
+    val w1 = Window.partitionBy($"REPO_OWNER", $"REPOSITORY", $"GIT_PATH", $"max(O_COMMIT_TIME)").orderBy($"COMMIT_TIME".desc)
+    val allJSFilesAtTimeOfCopyFromSrc = allData.
+      join(truePathCopy.select("O_REPO_OWNER", "O_REPOSITORY", "max(O_COMMIT_TIME)").distinct, // just get unique files at required timestamps from the orig repo.
+        joinExprs =
+          $"O_REPO_OWNER" === $"REPO_OWNER" &&
+          $"O_REPOSITORY" === $"REPOSITORY" &&
+          $"max(O_COMMIT_TIME)" >= $"COMMIT_TIME").
+      withColumn("RANK", rank().over(w1)).
+      filter($"RANK" === 1).            // Pick latest commit till that time.
+      filter($"HASH_CODE".isNotNull).   // Pick all files that aren't in deleted state.
+      select(
+        $"O_REPO_OWNER",
+        $"O_REPOSITORY",
+        $"max(O_COMMIT_TIME)",
+        $"GIT_PATH".as("O_GIT_PATH")
+      )
+
+    // Do outer join to find if all the paths from original at the time of copy exists in the copied folder.
+    val w2 = Window.partitionBy("REPO_OWNER", "REPOSITORY", "GIT_PATH_PREFIX", "COMMIT_TIME", "O_REPO_OWNER", "O_REPOSITORY")
+    val copyPrefixesWithUnmatchedSrcFiles = allCopyPathsXRepo.withColumn("JNK", lit(false)).
+      join(allJSFilesAtTimeOfCopyFromSrc,
+        usingColumns = Seq("max(O_COMMIT_TIME)", "O_REPO_OWNER", "O_REPOSITORY", "O_GIT_PATH"),
+        joinType = "RIGHT_OUTER").
+      withColumn("IS_COPIED_AS_IMPORT", count("JNK").over(w2) === count("*").over(w2)).
+      filter($"IS_COPIED_AS_IMPORT").drop("JNK", "IS_COPIED_AS_IMPORT").
       checkpoint(true).
       persist(StorageLevel.MEMORY_AND_DISK_SER)
 
-    val allCopyPathsXRepo = copy.as("C").select("REPO_OWNER", "REPOSITORY", "GIT_PATH", "COMMIT_TIME").
-      distinct.     // Multiple originals can be present as 2 copies committed simultaneously
-      join(truePathCopy.as("B"),
-        joinExprs =
-          $"C.REPO_OWNER"  === $"B.REPO_OWNER"  &&
-          $"C.REPOSITORY"  === $"B.REPOSITORY"  &&
-          $"C.COMMIT_TIME" === $"B.COMMIT_TIME" &&
-          $"C.GIT_PATH".startsWith($"B.GIT_PATH_PREFIX")).
-      select(
-        $"C.REPO_OWNER",
-        $"C.REPOSITORY",
-        $"GIT_PATH_PREFIX",
-        $"C.COMMIT_TIME",
-        $"O_REPO_OWNER",
-        $"O_REPOSITORY",
-        $"C.GIT_PATH".substr(length($"GIT_PATH_PREFIX") + 1, lit(100000)).as("O_GIT_PATH")
-      )
-
-
-    val allJSFilesAtTimeOfCopyFromSrc = allData.as("ALL").
-      join(truePathCopy.as("B"),
-        joinExprs =
-          $"O_REPO_OWNER" === $"ALL.REPO_OWNER" &&
-          $"O_REPOSITORY" === $"ALL.REPOSITORY" &&
-          $"max(O_COMMIT_TIME)" >= $"ALL.COMMIT_TIME").
-      withColumn("RANK", rank().over(Window.partitionBy($"ALL.REPO_OWNER", $"ALL.REPOSITORY", $"ALL.O_GIT_PATH").orderBy($"ALL.COMMIT_TIME".desc))).
-      filter($"RANK" === 1).filter($"HASH_CODE".isNotNull).
-      select(
-        $"ALL.REPO_OWNER",
-        $"ALL.REPOSITORY",
-        $"ALL.GIT_PATH".as("O_GIT_PATH"),
-        $"B.GIT_PATH_PREFIX",
-        $"B.COMMIT_TIME",
-        $"B.O_REPO_OWNER",
-        $"B.O_REPOSITORY").
-      distinct
-
-
-    val windowSpec = Window.partitionBy("REPO_OWNER", "REPOSITORY", "GIT_PATH_PREFIX", "COMMIT_TIME", "O_REPO_OWNER", "O_REPOSITORY")
-    val copyPrefixesWithUnmatchedSrcFiles = allCopyPathsXRepo.withColumn("JNK", lit(false)).
-      join(allJSFilesAtTimeOfCopyFromSrc,
-        usingColumns = Seq("REPO_OWNER", "REPOSITORY", "GIT_PATH_PREFIX", "COMMIT_TIME", "O_REPO_OWNER", "O_REPOSITORY", "O_GIT_PATH"),
-        joinType = "RIGHT_OUTER").
-      withColumn("IS_COPIED_AS_IMPORT", count("JNK").over(windowSpec) === count(lit(true)).over(windowSpec)).
-      filter($"IS_COPIED_AS_IMPORT").drop("JNK", "IS_COPIED_AS_IMPORT").
-      checkpoint(true)
-
+    truePathCopy.unpersist(true)
 
     // TODO: What should we consider that path if it belongs to copy as import and then changed to something else?
     val copyAsImportCount = copyPrefixesWithUnmatchedSrcFiles.select("REPO_OWNER", "REPOSITORY", "GIT_PATH_PREFIX", "O_GIT_PATH").distinct.count
 
     copyAsImportCount
-//    copyPrefixesWithUnmatchedSrcFiles.filter($"REPO_OWNER" === "ajhino" && $"REPOSITORY" === "ajhino.github.com" && $"COMMIT_TIME" === "1344316781").show(1000)
-//    copy.filter($"REPO_OWNER" === "ajhino" && $"REPOSITORY" === "ajhino.github.com" && $"COMMIT_TIME" === "1344316781").show(1000)
-//    copyPrefixesWithUnmatchedSrcFiles.groupBy("REPO_OWNER", "REPOSITORY", "COMMIT_TIME").count.orderBy($"COUNT").show
   }
 
 
@@ -259,18 +246,4 @@ object Analysis {
       filter($"RANK" === 1).
       drop("RANK")
   }
-
-//  df.groupBy($"REPO_OWNER", $"REPOSITORY", $"GIT_PATH").max("COMMIT_TIME").filter($"REPO_OWNER" === "3rd-Eden").filter($"GIT_PATH" === "test/common.js").show(100)
-//
-//  orig.filter($"REPO_OWNER" === "3rd-Eden").filter($"GIT_PATH" === "test/common.js").orderBy("min(COMMIT_TIME)").show(100)
-//  copy.filter($"REPO_OWNER" === "3rd-Eden").filter($"GIT_PATH" === "test/common.js").orderBy("COMMIT_TIME").show(100)
-//  bugFixedHash.filter($"O_REPO_OWNER" === "3rd-Eden").filter($"O_GIT_PATH" === "test/common.js").orderBy("O_COMMIT_TIME").show(100)
-//  headHashOfCopy.filter($"REPO_OWNER" === "3rd-Eden").filter($"GIT_PATH" === "test/common.js").orderBy("COMMIT_TIME").show(100)
-//
-//  buggy.filter($"REPO_OWNER" === "3rd-Eden").filter($"GIT_PATH" === "test/common.js").orderBy("COMMIT_TIME").show(100)
-//  buggy.show(1000)
-
-//  B creates a files
-  //
-  // copies from A
 }
