@@ -7,34 +7,44 @@ import org.reactorlabs.jshealth.Main.{prop, sc, spark}
 
 object Analysis {
   import org.apache.spark.sql.{SQLContext, SparkSession, Column, DataFrame}
+  import org.apache.spark.sql.types.{LongType, StringType, StructField, StructType}
   import org.apache.spark.storage.StorageLevel
   import org.apache.spark.sql
 
   import org.apache.spark.sql.expressions.Window
   import org.apache.spark.sql.functions._
 
-  val dbConnOptions = Map("driver" -> "com.mysql.cj.jdbc.Driver",
-    "url" -> "jdbc:mysql://localhost/reactorlabs_2018_02_01?serverTimezone=UTC&autoReconnect=true&useSSL=false&maxReconnects=10",
-    "username"  -> "reactorlabs",
-    "user"      -> "reactorlabs",
-    "password"  -> "gthe123",
-    "schema"    -> "reactorlabs_2018_02_01")
+//  val dbConnOptions = Map("driver" -> "com.mysql.cj.jdbc.Driver",
+//    "url" -> "jdbc:mysql://localhost/reactorlabs_2018_02_01?serverTimezone=UTC&autoReconnect=true&useSSL=false&maxReconnects=10",
+//    "username"  -> "reactorlabs",
+//    "user"      -> "reactorlabs",
+//    "password"  -> "gthe123",
+//    "schema"    -> "reactorlabs_2018_02_01")
 
   val sqlContext: SQLContext = spark.sqlContext
   import sqlContext.implicits._
   sc.setCheckpointDir("/Users/shabbirhussain/Data/project/mysql-2018-02-01/temp/")
   sc.setLogLevel("ERROR")
 
-  val allData = sqlContext.read.format("jdbc").options(dbConnOptions).
-//    option("dbtable", "TEMP").
-    option("dbtable", "FILE_HASH_HISTORY").
-    load().
+  val customSchema = StructType(Array(
+    StructField("REPO_OWNER",   StringType, nullable = false),
+    StructField("REPOSITORY",   StringType, nullable = false),
+    StructField("GIT_PATH",     StringType, nullable = false),
+    StructField("HASH_CODE",    StringType, nullable = true),
+    StructField("COMMIT_TIME",  LongType,   nullable = false)))
+
+  val allData1 = sqlContext.read.format("csv").
+    option("delimiter",",").option("quote","\"").
+    schema(customSchema).
+    load("/Users/shabbirhussain/Data/project/dumps/FILE_HASH_HISTORY.csv.bz2").limit(10000).
+    persist(StorageLevel.MEMORY_AND_DISK_SER)
+
+  val allData = allData1.
     select($"REPO_OWNER", $"REPOSITORY", $"GIT_PATH", $"HASH_CODE", $"COMMIT_TIME".cast(sql.types.LongType)).
-    withColumn("min(COMMIT_TIME)", min("COMMIT_TIME").over(Window.partitionBy("REPO_OWNER", "REPOSITORY", "GIT_PATH"))).
+    withColumn("min(COMMIT_TIME)", min("COMMIT_TIME").over(Window.partitionBy("HASH_CODE"))).
     repartition($"REPO_OWNER", $"REPOSITORY", $"GIT_PATH").
-    withColumn("FIX_COMMIT_TIME", lead("COMMIT_TIME", 1).over(Window.partitionBy("REPO_OWNER", "REPOSITORY", "GIT_PATH").orderBy("COMMIT_TIME"))).
-    withColumn("FIX_HASH_CODE"  , lead("HASH_CODE"  , 1).over(Window.partitionBy("REPO_OWNER", "REPOSITORY", "GIT_PATH").orderBy("COMMIT_TIME"))).
-    checkpoint(true).
+    withColumn("HEAD_COMMIT_TIME", first("COMMIT_TIME").over(Window.partitionBy("REPO_OWNER", "REPOSITORY", "GIT_PATH").orderBy($"COMMIT_TIME".desc))).
+    withColumn("HEAD_HASH_CODE"  , first("HASH_CODE"  ).over(Window.partitionBy("REPO_OWNER", "REPOSITORY", "GIT_PATH").orderBy($"COMMIT_TIME".desc))).
     persist(StorageLevel.MEMORY_AND_DISK_SER)
 
   // List all original content based on first commit.
@@ -46,96 +56,77 @@ object Analysis {
       $"GIT_PATH"   .as("O_GIT_PATH"),
       $"COMMIT_TIME".as("O_COMMIT_TIME"),
       $"HASH_CODE",
-      $"FIX_COMMIT_TIME".as("O_FIX_COMMIT_TIME"),
-      $"FIX_HASH_CODE"  .as("O_FIX_HASH_CODE")
-    ).checkpoint(true).persist(StorageLevel.DISK_ONLY)
+      $"HEAD_COMMIT_TIME".as("O_HEAD_COMMIT_TIME"),
+      $"HEAD_HASH_CODE"  .as("O_HEAD_HASH_CODE")
+    ).persist(StorageLevel.MEMORY_AND_DISK_SER)
 
   // List all the copied content (hash equal).
-  val copy = allData.where($"COMMIT_TIME" =!= $"min(COMMIT_TIME)" && $"HASH_CODE".isNotNull).drop($"min(COMMIT_TIME)").
+  val copy = allData.
+    filter($"COMMIT_TIME" =!= $"min(COMMIT_TIME)" && $"HASH_CODE".isNotNull).drop($"min(COMMIT_TIME)").
     join(orig, usingColumn = "HASH_CODE").
-    // Prevent file revert getting detected as copy
-    filter(
+    filter( // Prevent file revert getting detected as copy
       $"REPO_OWNER" =!= $"O_REPO_OWNER" ||
       $"REPOSITORY" =!= $"O_REPOSITORY" ||
-      $"GIT_PATH"   =!= $"O_GIT_PATH"       // TODO: When should we consider copy within a repo?
-    ).filter($"O_FIX_HASH_CODE".isNotNull). // Ignore immediate moves
-    checkpoint(true).persist(StorageLevel.DISK_ONLY)
+      $"GIT_PATH"   =!= $"O_GIT_PATH"
+    ).filter(!($"O_HEAD_HASH_CODE".isNull && $"O_HEAD_COMMIT_TIME" === $"COMMIT_TIME")). // Ignore immediate moves
+    checkpoint(true).persist(StorageLevel.MEMORY_AND_DISK_SER)
+
+  val allUniqPathsCount = allData.
+    filter($"HASH_CODE" === $"HEAD_HASH_CODE").     // Head only
+    filter($"HASH_CODE".isNotNull).                 // Paths which aren't deleted
+    select("REPO_OWNER", "REPOSITORY", "GIT_PATH").distinct.count
+  val origUniqPathsCount = orig.
+    filter($"HASH_CODE" === $"O_HEAD_HASH_CODE").   // Head only
+    filter($"HASH_CODE".isNotNull).                 // Paths which aren't deleted
+    select("O_REPO_OWNER", "O_REPOSITORY", "O_GIT_PATH").distinct.count
+  val copyUniqPathsCount = copy.
+    filter($"HASH_CODE" === $"HEAD_HASH_CODE").     // Head only
+    filter($"HASH_CODE".isNotNull).                 // Paths which aren't deleted
+    select("REPO_OWNER", "REPOSITORY", "GIT_PATH").distinct.count
+
+
+  // Divergent Analysis
+  val divergentCopyCount = copy.select("REPO_OWNER", "REPOSITORY", "GIT_PATH").distinct.
+    join(orig.
+      filter($"HASH_CODE" === $"O_HEAD_HASH_CODE").   // Head only
+      filter($"HASH_CODE".isNotNull)                  // Paths which aren't deleted
+      , joinExprs =
+        $"O_REPO_OWNER" === $"REPO_OWNER" &&
+        $"O_REPOSITORY" === $"REPOSITORY" &&
+        $"O_GIT_PATH"   === $"GIT_PATH"
+    ).count
+
+
+
+
+
+  
 
   // Obsolete code analysis
-  val (uniqPaths, origUniqPaths, copyUniqPaths, activeRepoObsoleteCopyCount, divergentUniqPaths) = {
+  val activeRepoObsoleteCopyCount = {
     // List of all the copied content which is at the head of that path.
-    val copiesAtHead = copy.filter($"FIX_COMMIT_TIME".isNull)
+    val undeletedCopiesAtHead = copy.
+      filter($"HASH_CODE" === $"HEAD_HASH_CODE"). // Head only
+      filter($"HASH_CODE".isNotNull)              // Paths which aren't deleted
 
     // Repos which have a later commit than bug. (Only active js development.)
     // TODO: will moving a file count towards obsolete code?
+    // TODO: Merge following two commands
     val activeRepoObsoleteCopy = allData.
       groupBy("REPO_OWNER", "REPOSITORY").max("COMMIT_TIME").
       withColumnRenamed("max(COMMIT_TIME)", "REPO_LAST_COMMIT_TIME").
-      join(copiesAtHead.
-          filter($"O_FIX_COMMIT_TIME".isNotNull). // Specifies original was fixed after
-          filter($"O_FIX_HASH_CODE".isNotNull),   // The fix wasn't a delete
+      join(undeletedCopiesAtHead.
+          filter($"O_HEAD_HASH_CODE" =!= $"O_HASH_CODE"), // Specifies original was fixed after
+          // filter($"O_FIX_HASH_CODE".isNotNull),   // Specifies original was fixed after and the fix wasn't a delete
         Seq("REPO_OWNER", "REPOSITORY")).
-      withColumn("IS_ACTIVE", $"REPO_LAST_COMMIT_TIME" > $"O_FIX_COMMIT_TIME").
-      checkpoint(true)
-
-    val uniqPaths     = allData.select("REPO_OWNER", "REPOSITORY", "GIT_PATH").distinct.count
-    val origUniqPaths = orig.select("O_REPO_OWNER", "O_REPOSITORY", "O_GIT_PATH").distinct.count
-    val copyUniqPaths = copiesAtHead.select("REPO_OWNER", "REPOSITORY", "GIT_PATH").distinct.count
-    val divergentUniqPaths = copyUniqPaths - copyUniqPaths
+      withColumn("IS_ACTIVE", $"REPO_LAST_COMMIT_TIME" > $"O_HEAD_COMMIT_TIME").
+      select("REPO_OWNER", "REPOSITORY", "GIT_PATH", "IS_ACTIVE").distinct.
+      persist(StorageLevel.DISK_ONLY)
     val activeRepoObsoleteCopyCount = activeRepoObsoleteCopy.groupBy("IS_ACTIVE").count.collect
 
-    //  activeRepoObsoleteCopy.show(10)
-    //  activeRepoObsoleteCopy.rdd.coalesce(1, shuffle = true).saveAsTextFile("/Users/shabbirhussain/Data/project/mysql-2018-02-01/activeBugs.csv")
-
-    (uniqPaths, origUniqPaths, copyUniqPaths, activeRepoObsoleteCopyCount, divergentUniqPaths)
+    activeRepoObsoleteCopyCount
   }
 
-/*  // Divergent Analysis
-  val (nonDivergentCopy, divergentCopyCount)  = {
-
-
-    val nonDivergentCopy = copiesAtHead.select("REPO_OWNER", "REPOSITORY", "GIT_PATH").distinct.withColumn("JNK", lit(true))
-    val copy2 = copy.select("REPO_OWNER", "REPOSITORY", "GIT_PATH").distinct.checkpoint(true)
-    val divergentCopy    = copy2.
-      join(nonDivergentCopy,
-        usingColumns = Seq("REPO_OWNER", "REPOSITORY", "GIT_PATH"), joinType = "LEFT_OUTER").
-      withColumn("IS_DIVERGENT", $"JNK".isNull).drop("JNK").checkpoint(true)
-    val divergentCopyCount = divergentCopy.groupBy("IS_DIVERGENT").count.collect()
-
-
-    //  val divergentAllCommmits = divergentCopy.filter($"IS_DIVERGENT").drop("IS_DIVERGENT", "min(COMMIT_TIME)").
-    //    join(joinedDf, usingColumns = Seq("REPO_OWNER", "REPOSITORY", "GIT_PATH")).as("ALL").checkpoint(true)
-    //  val divergentExample = divergentAllCommmits.
-    //    join(copy, usingColumns = Seq("REPO_OWNER", "REPOSITORY", "GIT_PATH", "HASH_CODE", "COMMIT_TIME"), joinType = "LEFT_OUTER").
-    //    orderBy("REPO_OWNER", "REPOSITORY", "GIT_PATH", "COMMIT_TIME").
-    //    checkpoint(true)
-
-    //  divergentExample.filter($"GIT_PATH" === "lib/ripple/platform/wac/1.0/spec/config.js" && $"REPO_OWNER" === "01org").show(10)
-    //  joinedDf.filter($"GIT_PATH" === "lib/ripple/platform/wac/1.0/spec/config.js" && $"REPO_OWNER" === "01org").take(100)(0)
-
-    // Trying to keep updated
-
-//    val nonDivergentCopySyncedMoreThanOnceCount = {
-//      val copySyncedMoreThanOnce = copy.
-//        groupBy("REPO_OWNER", "REPOSITORY", "GIT_PATH", "O_REPO_OWNER", "O_REPOSITORY", "O_GIT_PATH").
-//        agg(countDistinct("HASH_CODE")).
-//        filter($"count(DISTINCT HASH_CODE)" > 1).drop("count(DISTINCT HASH_CODE)")
-//
-//      val nonDivergentCopySyncedMoreThanOnce = nonDivergentCopy.drop("JNK").
-//        join(copySyncedMoreThanOnce, usingColumns = Seq("REPO_OWNER", "REPOSITORY", "GIT_PATH")).
-//        join(headHashOfOrig.select($"REPO_OWNER".as("O_REPO_OWNER"), $"REPOSITORY".as("O_REPOSITORY"), $"GIT_PATH".as("O_GIT_PATH")).withColumn("JNK", lit(true)),
-//          usingColumns = Seq("O_REPO_OWNER", "O_REPOSITORY", "O_GIT_PATH"), joinType = "LEFT_OUTER").
-//        withColumn("IS_IN_SYNC", $"JNK".isNotNull).drop("JNK").
-//        checkpoint(true)
-//
-//      val nonDivergentCopySyncedMoreThanOnceCount = nonDivergentCopySyncedMoreThanOnce.
-//        groupBy("IS_IN_SYNC").count.collect()
-//      nonDivergentCopySyncedMoreThanOnceCount
-//    }
-
-
-    (nonDivergentCopy, divergentCopyCount)
-  }*/
 
 
   // Copy as Import
@@ -147,8 +138,8 @@ object Analysis {
       withColumn("GIT_PATH_PREFIX", $"GIT_PATH".substr(lit(0), length($"GIT_PATH") - length($"O_GIT_PATH"))).
       groupBy("REPO_OWNER", "REPOSITORY", "COMMIT_TIME", "GIT_PATH_PREFIX", "O_REPO_OWNER", "O_REPOSITORY").
       agg(max($"O_COMMIT_TIME")).
-      distinct.
-      checkpoint(true).persist(StorageLevel.MEMORY_AND_DISK_SER)
+      checkpoint(true).
+      persist(StorageLevel.MEMORY_AND_DISK_SER)
 
     val allCopyPathsXRepo = copy.as("C").select("REPO_OWNER", "REPOSITORY", "GIT_PATH", "COMMIT_TIME").
       distinct.     // Multiple originals can be present as 2 copies committed simultaneously
@@ -166,7 +157,7 @@ object Analysis {
         $"O_REPO_OWNER",
         $"O_REPOSITORY",
         $"C.GIT_PATH".substr(length($"GIT_PATH_PREFIX") + 1, lit(100000)).as("O_GIT_PATH")
-      ).checkpoint(true).persist(StorageLevel.MEMORY_AND_DISK_SER)
+      )
 
 
     val allJSFilesAtTimeOfCopyFromSrc = allData.as("ALL").
@@ -224,35 +215,35 @@ object Analysis {
 
   // Phase of copy
   {
-    val testTime = df.filter(lower($"GIT_PATH").contains("test/")).
-      groupBy($"REPO_OWNER", $"REPOSITORY").
-      agg(min("COMMIT_TIME")).withColumnRenamed("min(COMMIT_TIME)", "T_COMMIT_TIME").
-      checkpoint(true)
-
-//    val copyPhase = df.groupBy($"REPO_OWNER", $"REPOSITORY").
-//      agg(min("COMMIT_TIME"), max("COMMIT_TIME"), count("COMMIT_TIME"), countDistinct("GIT_PATH")).
-//      join(copy.select("REPO_OWNER", "REPOSITORY", "COMMIT_TIME"), usingColumns = Seq("REPO_OWNER", "REPOSITORY")).
-//      withColumn("COPY_PHASE", ($"COMMIT_TIME" - $"min(COMMIT_TIME)")/($"max(COMMIT_TIME)" - $"min(COMMIT_TIME)")).
-//      join(testTime, usingColumns = Seq("REPO_OWNER", "REPOSITORY"), joinType = "LEFT_OUTER").
-//      withColumn("T_COMMIT_TIME1", when($"T_COMMIT_TIME".isNull, $"max(COMMIT_TIME)").otherwise($"T_COMMIT_TIME")).
-//      withColumn("TEST_PHASE", ($"T_COMMIT_TIME1" - $"min(COMMIT_TIME)")/($"max(COMMIT_TIME)" - $"min(COMMIT_TIME)")).
-//      groupBy("count(COMMIT_TIME)", "count(DISTINCT GIT_PATH)").agg(mean("COPY_PHASE"), mean("TEST_PHASE")).
+//    val testTime = df.filter(lower($"GIT_PATH").contains("test/")).
+//      groupBy($"REPO_OWNER", $"REPOSITORY").
+//      agg(min("COMMIT_TIME")).withColumnRenamed("min(COMMIT_TIME)", "T_COMMIT_TIME").
 //      checkpoint(true)
-
-    //val copy2 = copy.select("REPO_OWNER", "REPOSITORY", "COMMIT_TIME")
-    val copy3 = copy.groupBy("REPO_OWNER", "REPOSITORY").min("COMMIT_TIME").withColumnRenamed("min(COMMIT_TIME)", "COMMIT_TIME")
-    val copyPhase = allData.groupBy($"REPO_OWNER", $"REPOSITORY").
-      agg(min("COMMIT_TIME"), max("COMMIT_TIME"), countDistinct("COMMIT_TIME"), countDistinct("GIT_PATH")).
-      join(copy3, usingColumns = Seq("REPO_OWNER", "REPOSITORY")).
-      withColumn("COPY_PHASE", ($"COMMIT_TIME" - $"min(COMMIT_TIME)")/($"max(COMMIT_TIME)" - $"min(COMMIT_TIME)" + 1)).
-      groupBy("count(DISTINCT COMMIT_TIME)", "count(DISTINCT GIT_PATH)").agg(sum("COPY_PHASE"), count("COPY_PHASE")).
-      checkpoint(true)
-
-    copyPhase.rdd.map(_.mkString(",")).
-      coalesce(1, shuffle = true).
-      saveAsTextFile("/Users/shabbirhussain/Data/project/mysql-2018-02-01/report/copyPhase")
-
-    copyPhase.show(10)
+//
+////    val copyPhase = df.groupBy($"REPO_OWNER", $"REPOSITORY").
+////      agg(min("COMMIT_TIME"), max("COMMIT_TIME"), count("COMMIT_TIME"), countDistinct("GIT_PATH")).
+////      join(copy.select("REPO_OWNER", "REPOSITORY", "COMMIT_TIME"), usingColumns = Seq("REPO_OWNER", "REPOSITORY")).
+////      withColumn("COPY_PHASE", ($"COMMIT_TIME" - $"min(COMMIT_TIME)")/($"max(COMMIT_TIME)" - $"min(COMMIT_TIME)")).
+////      join(testTime, usingColumns = Seq("REPO_OWNER", "REPOSITORY"), joinType = "LEFT_OUTER").
+////      withColumn("T_COMMIT_TIME1", when($"T_COMMIT_TIME".isNull, $"max(COMMIT_TIME)").otherwise($"T_COMMIT_TIME")).
+////      withColumn("TEST_PHASE", ($"T_COMMIT_TIME1" - $"min(COMMIT_TIME)")/($"max(COMMIT_TIME)" - $"min(COMMIT_TIME)")).
+////      groupBy("count(COMMIT_TIME)", "count(DISTINCT GIT_PATH)").agg(mean("COPY_PHASE"), mean("TEST_PHASE")).
+////      checkpoint(true)
+//
+//    //val copy2 = copy.select("REPO_OWNER", "REPOSITORY", "COMMIT_TIME")
+//    val copy3 = copy.groupBy("REPO_OWNER", "REPOSITORY").min("COMMIT_TIME").withColumnRenamed("min(COMMIT_TIME)", "COMMIT_TIME")
+//    val copyPhase = allData.groupBy($"REPO_OWNER", $"REPOSITORY").
+//      agg(min("COMMIT_TIME"), max("COMMIT_TIME"), countDistinct("COMMIT_TIME"), countDistinct("GIT_PATH")).
+//      join(copy3, usingColumns = Seq("REPO_OWNER", "REPOSITORY")).
+//      withColumn("COPY_PHASE", ($"COMMIT_TIME" - $"min(COMMIT_TIME)")/($"max(COMMIT_TIME)" - $"min(COMMIT_TIME)" + 1)).
+//      groupBy("count(DISTINCT COMMIT_TIME)", "count(DISTINCT GIT_PATH)").agg(sum("COPY_PHASE"), count("COPY_PHASE")).
+//      checkpoint(true)
+//
+//    copyPhase.rdd.map(_.mkString(",")).
+//      coalesce(1, shuffle = true).
+//      saveAsTextFile("/Users/shabbirhussain/Data/project/mysql-2018-02-01/report/copyPhase")
+//
+//    copyPhase.show(10)
 
   }
 
