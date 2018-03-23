@@ -36,6 +36,8 @@ run:
 	 	--master local --driver-memory 4g \
 	 	--jars "${FULL_RUNTIME_JARS}" \
     	--class org.reactorlabs.jshealth.Main "${JAR_NAME}" "${INPUT_PATH}"
+ss:
+	${SPARK_BIN_PATH}/spark-shell --driver-memory 7G --executor-memory 7G --executor-cores 3 --jars=${FULL_RUNTIME_JARS}
 
 setup: clean
 	mvn install dependency:copy-dependencies
