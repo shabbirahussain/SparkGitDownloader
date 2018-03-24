@@ -9,6 +9,7 @@ import org.apache.log4j.Logger
 import org.apache.spark.SparkContext
 import org.apache.spark.sql.{SQLContext, SparkSession}
 import org.reactorlabs.jshealth.datastores.{DataStore, LocalStore}
+import org.reactorlabs.jshealth.util.NpmToGitMapper
 
 import scala.collection.mutable
 import scala.io.Source
@@ -78,9 +79,7 @@ object Main extends Serializable {
 
 //    ghtorrent.Main.main(Array[String]())
     git.Main.main(Array[String]())
-
-//    sc.textFile("/Users/shabbirhussain/Data/project/mysql-2018-02-01/projects.csv")
-//      .saveAsTextFile("/Users/shabbirhussain/Data/project/mysql-2018-02-01/projects_full.csv")
+//    NpmToGitMapper.main(Array[String]())
 
     println("\nended at:" + new Date() + "\ttook:"+ (System.currentTimeMillis() - start))
   }
