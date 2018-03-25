@@ -122,11 +122,8 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
                 repo      = null,
                 branch    = x.getTree.getName,
                 gitPath   = y._1,
-                fileType  = FileTypes.blob,
                 fileHash  = y._2,
-                byteSize  = -1,
                 commitId  = x.getId.name(),
-                commitMsg = x.getShortMessage,
                 commitTime= x.getCommitTime)
             })
 
@@ -158,13 +155,9 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
             repo      = repo,
             branch    = x.branch,
             gitPath   = x.gitPath,
-            fileType  = x.fileType,
             fileHash  = x.fileHash,
-            byteSize  = x.byteSize,
             commitId  = x.commitId,
-            commitMsg = x.commitMsg.toLowerCase(),
-            commitTime= x.commitTime,
-            isBugFix  = x.commitMsg.toLowerCase().contains("fix")
+            commitTime= x.commitTime
           ))
 
     } catch{

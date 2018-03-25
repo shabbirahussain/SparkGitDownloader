@@ -67,7 +67,10 @@ object Main extends Serializable {
 
   val sqlContext: SQLContext = spark.sqlContext
 
-  val dataStore: DataStore = new LocalStore(prop.getProperty("ds.mysql.batch.size").toInt)
+  val dataStore: DataStore = new LocalStore(
+    prop.getProperty("ds.mysql.batch.size").toInt,
+    prop.getProperty("ds.filestore.path")
+  )
 
   def main(args: Array[String])
   : Unit = {

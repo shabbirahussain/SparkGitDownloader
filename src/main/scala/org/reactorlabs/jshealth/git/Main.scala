@@ -18,7 +18,6 @@ object Main {
   private val keychain        = new Keychain(prop.getProperty("git.api.keys.path"))
   private val gitPath         = prop.getProperty("git.repo.path") //Files.createTempDir()
   private val crawlBatchSize  = prop.getProperty("git.crawl.batch.size").toInt
-  private val lineWidth       = prop.getProperty("console.line.width").toInt
   private val numWorkers      = prop.getProperty("spark.executor.cores").toInt
   private val gitHub: RepoManager  = new GitHubClient(extensions = extensions, gitPath, keychain)
 
@@ -32,21 +31,25 @@ object Main {
     val cnt = links.count()
     if (cnt == 0) return false
 
-    links
+    val fhtFileErr = links
         .repartition(numWorkers)
-        .foreachPartitionAsync(_.foreach(x=> {
+        .map(x=> {
           val msg = ": " + x._1 + "/" + x._2 + "/" + x._3
           println("\r" + (new Date()) + msg + (" " * (100 - msg.length)))
           logger.log(Level.INFO, msg)
+          x
+        })
+        .map(x=> {
+          val (fhtSeq, folder, errmsg) = gitHub.getFileCommits(x._1, x._2, x._3)
+          dataStore.markRepoError(owner = x._1, repo = x._2, branch = x._3, err= errmsg)
+          (fhtSeq, folder)
+        })
+    val fht = fhtFileErr.flatMap(_._1)
+    val repos = fht.map(x=> (x.owner, x.repo, x.branch)).distinct
 
-          val (files, folder, errmsg) = gitHub.getFileCommits(x._1, x._2, x._3)
-
-          dataStore.storeHistory(files)
-          dataStore.markRepoCompleted(FileHashTuple(owner = x._1, repo = x._2, branch = x._3, error = errmsg))
-
-          if (folder.isDefined)
-            util.deleteRecursively(folder.get)
-        }))
+    dataStore.storeHistory(fht)
+    dataStore.markRepoCompleted(repos)
+    fhtFileErr.map(_._2).filter(_.isDefined).map(x=>util.deleteRecursively(x.get))
     true
   }
 

@@ -1,8 +1,5 @@
 package org.reactorlabs.jshealth.analysis
 
-import java.util
-
-import org.apache.spark.SparkContext
 import org.reactorlabs.jshealth.Main.{prop, sc, spark}
 
 object Analysis {
@@ -28,8 +25,7 @@ object Analysis {
 
   val rawData = sqlContext.read.format("csv").
     option("delimiter",",").option("quote","\"").schema(customSchema).
-    load("/Users/shabbirhussain/Data/project/dumps/FILE_HASH_HISTORY.csv.bz2").
-    persist(StorageLevel.MEMORY_AND_DISK_SER)
+    load("/Users/shabbirhussain/Data/project/FILE_HASH_HISTORY/").distinct
 
   val allData = rawData.
     filter($"REPO_OWNER".isNotNull && $"REPOSITORY".isNotNull && $"GIT_PATH".isNotNull &&$"COMMIT_TIME".isNotNull).
@@ -153,7 +149,7 @@ object Analysis {
         otherwise(0)).
       withColumn("crc32(HASH_CODE)", $"crc32(HASH_CODE)" - $"crc32(PREV_HASH_CODE)").drop("crc32(PREV_HASH_CODE)").
       // Extract first level folder to aggregate repository.
-      withColumn("TEMP", split($"GIT_PATH", "/")).withColumn("FOLDER", when(size($"TEMP") === 1, "").otherwise($"TEMP"(0))).drop("TEMP").
+      withColumn("FOLDER", split($"GIT_PATH", "/")).withColumn("FOLDER", when(size($"FOLDER") === 1, "").otherwise($"FOLDER"(0))).
       // Fingerprint all additions in a commit for a whole repo.
       groupBy("REPO_OWNER", "REPOSITORY", "COMMIT_TIME", "FOLDER").
       agg(sum($"crc32(GIT_PATH)"), sum($"crc32(HASH_CODE)"), sum(signum($"crc32(GIT_PATH)"))).
@@ -185,7 +181,7 @@ object Analysis {
       withColumn("crc32(HASH_CODE)" , crc32($"HASH_CODE")).
       withColumn("crc32(O_GIT_PATH)", crc32($"O_GIT_PATH")).
       // Extract first level folder to aggregate repository.
-      withColumn("TEMP", split($"O_GIT_PATH", "/")).withColumn("O_FOLDER", when(size($"TEMP") === 1, "").otherwise($"TEMP"(0))).drop("TEMP").
+      withColumn("O_FOLDER", split($"O_GIT_PATH", "/")).withColumn("O_FOLDER", when(size($"O_FOLDER") === 1, "").otherwise($"O_FOLDER"(0))).
       groupBy("REPO_OWNER", "REPOSITORY", "COMMIT_TIME", "GIT_PATH_PREFIX", "O_REPO_OWNER", "O_REPOSITORY", "max(O_COMMIT_TIME)", "O_FOLDER").
       agg(sum("crc32(HASH_CODE)"), sum("crc32(O_GIT_PATH)"), count("O_GIT_PATH")).
       persist(StorageLevel.MEMORY_AND_DISK_SER)
@@ -215,10 +211,20 @@ object Analysis {
 
 
 
-
-
+  copyAsImportCount
+  }
 
 /*
+
+    copy.filter($"GIT_PATH".contains("node_modules/")).
+      filter($"COMMIT_TIME" === $"HEAD_COMMIT_TIME").   // Pick head paths only.
+      filter(length($"GIT_PATH") > length($"O_GIT_PATH")).
+      filter($"GIT_PATH".contains($"O_GIT_PATH")).
+      select("REPO_OWNER", "REPOSITORY", "GIT_PATH").distinct.count
+      join(copyAsImportExamples.select("REPO_OWNER", "REPOSITORY").withColumn("JNK", lit(true)).distinct,
+        usingColumns = Seq("REPO_OWNER", "REPOSITORY"),
+        joinType = "LEFT_OUTER").
+      filter($"JNK".isNull).count
 
       val test = copy.
         filter($"COMMIT_TIME" === $"HEAD_COMMIT_TIME").   // Pick head paths only.
@@ -230,8 +236,10 @@ object Analysis {
           joinType = "LEFT_OUTER").
         filter($"JNK".isNull).persist(StorageLevel.MEMORY_AND_DISK_SER)
 
-      test.filter($"GIT_PATH".contains("node_modules/")).show
+      test.filter($"GIT_PATH".contains("node_modules/")).count
+      test.filter($"GIT_PATH".contains("node_modules/") && $"O_GIT_PATH".contains("node_modules/")).count
 
+      test.filter(!$"GIT_PATH".contains("node_modules/")).show
 
 
       copy.filter($"REPO_OWNER" === "mraleph" && $"REPOSITORY" === "mraleph.github.com" && $"GIT_PATH".contains("irhydra/2.bak/packages/core_elements/src/web-animations-next/node_modules/mocha/")).
@@ -283,102 +291,24 @@ object Analysis {
 
 
 
-
-
-            allData.filter($"REPO_OWNER" === "oscmejia" && $"REPOSITORY" === "tutorial-nodejs-cli").show
-              withColumn("PREV_HASH_CODE", lag("HASH_CODE", 1).
-                over(Window.partitionBy("REPO_OWNER", "REPOSITORY", "GIT_PATH").orderBy($"COMMIT_TIME"))).
-              withColumn("crc32(O_GIT_PATH)", crc32($"GIT_PATH")).
-              // Overcome double counting for the same path. This way we are only considering new additions.
-              withColumn("crc32(O_GIT_PATH)", when($"PREV_HASH_CODE".isNotNull && $"HASH_CODE".isNotNull, 0).otherwise($"crc32(O_GIT_PATH)")).
-              withColumn("count(O_GIT_PATH)", when($"PREV_HASH_CODE".isNotNull, 0).otherwise(1)).
-              // If path is deleted currently we subtract its CRC from overall sum.
-              withColumn("crc32(O_GIT_PATH)", when($"HASH_CODE".isNull, -1).otherwise(1).multiply($"crc32(O_GIT_PATH)")).
-              withColumn("count(O_GIT_PATH)", when($"HASH_CODE".isNull, -1).otherwise($"count(O_GIT_PATH)")).
-              // Fingerprint all additions in a commit for a whole repo.
-              groupBy("REPO_OWNER", "REPOSITORY", "COMMIT_TIME").
-              agg(sum($"crc32(O_GIT_PATH)"), sum("count(O_GIT_PATH)")).
-              // Do cumulative sum of fingerprints.
-              withColumn("sum(crc32(O_GIT_PATH))", sum("sum(crc32(O_GIT_PATH))").
-              over(Window.partitionBy("REPO_OWNER", "REPOSITORY").orderBy($"COMMIT_TIME"))).
-              withColumn("sum(count(O_GIT_PATH))", sum("sum(count(O_GIT_PATH))").
-                over(Window.partitionBy("REPO_OWNER", "REPOSITORY").orderBy($"COMMIT_TIME"))).
-
-
-
-
-
-
-
-
-
-
-
-
-            allCopyPathsXRepo.filter($"REPO_OWNER" === "indierojo" &&
-              $"REPOSITORY" === "home" &&
-              $"O_REPO_OWNER" === "substack" &&
-              $"O_REPOSITORY" === "node-mkdirp").show
-
-
-            truePathCopy.filter($"REPO_OWNER" === "14sumeets" &&
-              $"REPOSITORY" === "Time-Feed" &&
-              $"O_REPO_OWNER" === "broofa" &&
-              $"O_REPOSITORY" === "node-mime" &&
-              $"GIT_PATH_PREFIX" ==="node_modules/express/node_modules/mime/").show
-
-
-            allData.filter($"REPO_OWNER" === "14sumeets" &&
-              $"REPOSITORY" === "Time-Feed" &&
-              $"GIT_PATH" === "node_modules/express/node_modules/mime/mime.js").show
-
-
-
-            truePathCopy.filter($"REPO_OWNER" === "14sumeets" &&
-              $"REPOSITORY" === "Time-Feed" &&
-              $"O_REPO_OWNER" === "broofa" &&
-              $"O_REPOSITORY" === "node-mime" &&
-              $"GIT_PATH_PREFIX" ==="node_modules/express/node_modules/mime/").show
-
-
-            copyAsImportExamples.
-              filter($"REPO_OWNER" === "14sumeets" &&
-                $"REPOSITORY" === "Time-Feed" &&
-                $"O_REPO_OWNER" === "broofa" &&
-                $"O_REPOSITORY" === "node-mime").distinct.show
-
-
-            copy.filter($"REPO_OWNER" === "14sumeets" &&
-              $"REPOSITORY" === "Time-Feed" &&
-              $"GIT_PATH" === "node_modules/express/lib/router/methods.js" &&
-              $"COMMIT_TIME" === "1343185657").show
-
-            allData.
-              withColumn("crc32(O_GIT_PATH)", crc32($"GIT_PATH")).
-              withColumn("sum(crc32(O_GIT_PATH))", sum(when($"HASH_CODE".isNull, -1).otherwise(1).multiply($"crc32(O_GIT_PATH)")).over(w1)).
-              show
         */
-
-    copyAsImportCount
-  }
 
 
   // Chain copy res = 0
-  {
-    val connect = copy.
-      withColumn("C", concat($"REPO_OWNER", lit("/"), $"REPOSITORY")).
-      withColumn("O", concat($"O_REPO_OWNER", lit("/"), $"O_REPOSITORY")).
-      select("O", "C").checkpoint(true).persist(StorageLevel.MEMORY_AND_DISK_SER_2)
-    val cc = connect.as("A").join(connect.as("B"), joinExprs = $"A.O" === $"B.C")
-
-
-
-
-  }
+//  {
+//    val connect = copy.
+//      withColumn("C", concat($"REPO_OWNER", lit("/"), $"REPOSITORY")).
+//      withColumn("O", concat($"O_REPO_OWNER", lit("/"), $"O_REPOSITORY")).
+//      select("O", "C").checkpoint(true).persist(StorageLevel.MEMORY_AND_DISK_SER_2)
+//    val cc = connect.as("A").join(connect.as("B"), joinExprs = $"A.O" === $"B.C")
+//
+//
+//
+//
+//  }
 
 
   // Phase of copy
-  {
 //    val testTime = df.filter(lower($"GIT_PATH").contains("test/")).
 //      groupBy($"REPO_OWNER", $"REPOSITORY").
 //      agg(min("COMMIT_TIME")).withColumnRenamed("min(COMMIT_TIME)", "T_COMMIT_TIME").
@@ -406,10 +336,6 @@ object Analysis {
 //    copyPhase.rdd.map(_.mkString(",")).
 //      coalesce(1, shuffle = true).
 //      saveAsTextFile("/Users/shabbirhussain/Data/project/mysql-2018-02-01/report/copyPhase")
-//
-//    copyPhase.show(10)
-
-  }
 
 
   /** Gets the head record from the dataFrame given.

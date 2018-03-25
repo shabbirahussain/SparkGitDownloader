@@ -4,12 +4,13 @@ import org.apache.spark.rdd.RDD
 import org.reactorlabs.jshealth.Main._
 import org.reactorlabs.jshealth.models.FileHashTuple
 import org.apache.commons.lang.StringEscapeUtils.escapeSql
+import org.apache.hadoop.io.compress.BZip2Codec
 import org.apache.log4j.Level
 
 /**
   * @author shabbirahussain
   */
-class LocalStore(batchSize: Int) extends DataStore {
+class LocalStore(batchSize: Int, fileStorePath: String) extends DataStore {
   import sqlContext.implicits._
 
   /** Executes batch of sql statements.
@@ -64,25 +65,33 @@ class LocalStore(batchSize: Int) extends DataStore {
 
   // ================ API Methods ===================
 
-  override def markRepoCompleted(fht: FileHashTuple)
+  override def markRepoCompleted(repo: RDD[(String, String, String)])
   : Unit = {
-    val sql = """
-                |UPDATE REPOS_QUEUE
-                |   SET COMPLETED   = TRUE,
-                |       CHECKOUT_ID = NULL
-                |WHERE REPO_OWNER = '%s'
-                |  AND REPOSITORY = '%s'
-              """.stripMargin.format(fht.owner, escapeSql(fht.repo))
-    val sqlE= """
-                |UPDATE REPOS_QUEUE
-                |   SET COMPLETED   = TRUE,
-                |       CHECKOUT_ID = NULL,
-                |       RESULT      = '%s'
-                |WHERE REPO_OWNER = '%s'
-                |  AND REPOSITORY = '%s'
-              """.stripMargin.format(escapeSql(fht.error), fht.owner, escapeSql(fht.repo))
+    execInBatch(repo
+      .map(row =>
+        """
+            |UPDATE REPOS_QUEUE
+            |   SET COMPLETED   = TRUE,
+            |       CHECKOUT_ID = NULL
+            |WHERE REPO_OWNER = '%s'
+            |  AND REPOSITORY = '%s'
+            |  AND BRANCH     = '%s'
+        """.stripMargin.format(row._1, escapeSql(row._2), row._3)
+      ), autoCommit = true)
+  }
 
-    execInBatch(Seq(if(fht.error == null) sql else sqlE), autoCommit = true)
+  override def markRepoError(owner: String, repo: String, branch: String, err: String): Unit = {
+    execInBatch(Seq(
+        """
+          |UPDATE REPOS_QUEUE
+          |   SET COMPLETED   = TRUE,
+          |       CHECKOUT_ID = NULL,
+          |       RESULT      = '%s'
+          |WHERE REPO_OWNER = '%s'
+          |  AND REPOSITORY = '%s'
+          |  AND BRANCH     = '%s'
+        """.stripMargin.format(owner, escapeSql(repo), branch, escapeSql(err))
+      ), autoCommit = true)
   }
 
   override def checkoutReposToCrawl(limit: Int = 1000)
@@ -117,17 +126,16 @@ class LocalStore(batchSize: Int) extends DataStore {
     (rdd.map(x=> (x.get(0).toString, x.get(1).toString, x.get(2).toString)), token)
   }
 
-  override def storeHistory(fht: Seq[FileHashTuple])
+  override def storeHistory(fht: RDD[FileHashTuple])
   : Unit = {
-    execInBatch(fht
+    fht
       .map(row => {
-        """
-          |INSERT IGNORE INTO FILE_HASH_HISTORY(REPO_OWNER, REPOSITORY, BRANCH, GIT_PATH, HASH_CODE, COMMIT_ID, COMMIT_TIME, MESSAGE, IS_BUG_FIX)
-          |VALUES ('%s', '%s', '%s', '%s', '%s', '%s', %d, '%s', %s);
-        """.stripMargin
-          .format(row.owner, escapeSql(row.repo), row.branch, escapeSql(row.gitPath), row.fileHash, row.commitId, row.commitTime, escapeSql(row.commitMsg).replaceAll("[\n|'|\\\\]"," "), row.isBugFix)
-          .replaceAll("'null'", "null")
-      }), autoCommit = true)
+        """"%s","%s","%s","%s",%d""".stripMargin
+          .format(row.owner, row.repo, row.gitPath, row.fileHash, row.commitTime)
+          .replaceAll(""""null"""", "")
+      })
+      .coalesce(1, shuffle = true)
+      .saveAsTextFile(fileStorePath + System.currentTimeMillis(), classOf[BZip2Codec])
   }
 
   override def loadProjectsQueue(projects: RDD[String], flushExisting: Boolean)
