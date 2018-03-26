@@ -93,9 +93,11 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
 
     val res = allCommits.reverse
       .zipWithIndex.map(x=> {
-          val msg = "\r" + (new Date()) + "\t\t\t\t\tProcessing: (%s, %s):  %.2f%% of %7d commits"
-            .format(owner, repo, x._2*100.0/cnt, cnt, x._1.getId.name())
-          print(("\b" * msg.length) + msg)
+          if (x._2 % 10 == 0 ){
+            val msg = "\r" + (new Date()) + "\t\t\t\t\t\tProcessing: (%s, %s):  %.2f%% of %7d commits"
+              .format(owner, repo, x._2*100.0/cnt, cnt, x._1.getId.name())
+            print(("\b" * msg.length) + msg)
+          }
           x._1
       })
       .flatMap(x=> {

@@ -14,7 +14,7 @@ import org.reactorlabs.jshealth.util
 import scala.concurrent._
 import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Props}
 import akka.stream.ActorAttributes.supervisionStrategy
-import akka.stream.ActorMaterializer
+import akka.stream.{ActorMaterializer, OverflowStrategy}
 import akka.stream.Supervision.resumingDecider
 import akka.stream.scaladsl.{Sink, Source}
 import org.eclipse.jgit.api.errors.InvalidRemoteException
@@ -34,8 +34,8 @@ object Main {
   private val numWorkers      = prop.getProperty("git.downloader.numworkers").toInt
   private val gitHub: RepoManager  = new GitHubClient(extensions = extensions, gitPath, keychain)
 
-  implicit val system = ActorSystem("QuickStart")
-  implicit val materializer = ActorMaterializer()
+  implicit val system: ActorSystem = ActorSystem("QuickStart")
+  implicit val materializer: ActorMaterializer = ActorMaterializer()
 
   /** Crawls the files from the frontier queue and stores commit history back to database.
     *
@@ -55,6 +55,7 @@ object Main {
       })
       .flatMap(y=> {
           val future: Future[Seq[Seq[FileHashTuple]]] = Source.fromIterator(()=> y.iterator)
+            // Clone the git repo
             .mapAsyncUnordered(numWorkers * 2)(x=>   Future{
               try{
                 gitHub.gitCloneRepo(x._1, x._2)
@@ -65,6 +66,8 @@ object Main {
                   throw e
               }
             }).withAttributes(supervisionStrategy(resumingDecider))
+            .buffer(30, OverflowStrategy.backpressure)
+            // Process the cloned repo
             .mapAsyncUnordered(numWorkers)(git=> Future{
               try{
                 (gitHub.getRepoFilesHistory(git), git.getRepository.getDirectory.getParentFile)
@@ -76,6 +79,7 @@ object Main {
                   throw e
               }
             }).withAttributes(supervisionStrategy(resumingDecider))
+            // Delete finished repos
             .map(x=> {
               if (x._1.count(_=> true) > 0)
                 util.deleteRecursively(x._2)
@@ -83,8 +87,7 @@ object Main {
             })
             .runWith(Sink.seq)
 
-          val res = Await.ready(future, Duration.Inf)
-          future.value.get.get.flatten
+          Await.result(future, Duration.Inf).flatten
         })
 
     dataStore.storeHistory(fht, token.toString)
