@@ -58,10 +58,10 @@ class Keychain(keyFilePath: String) extends Serializable {
     if (!isValid) {
       available -= key
     } else {
-      if (remaining > 0) return key
-
-      available -= key
-      cooldownQ += (key -> reset)
+      if (remaining <= 0) {
+        available -= key
+        cooldownQ += (key -> reset)
+      }
     }
     getNewKey
   }

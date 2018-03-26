@@ -36,7 +36,7 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
   private val decoder = Codec.UTF8.decoder.onMalformedInput(CodingErrorAction.IGNORE)
 
   private var apiKey   : String   = _
-  private var remaining: Int      = 0
+  private var remaining: Int      = 1
   private var reset    : Long     = 0
   private var isValid  : Boolean  = false
 
@@ -56,13 +56,13 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
     val workinDir = Paths.get(workingGitDir + "/" + owner + "/" + repo).toFile
     util.deleteRecursively(workinDir)
 
-    val msg = "\r" + (new Date()) +"\tCloning : (%s, %s)".format(owner, repo)
+    val msg = "\r" + (new Date()) +"\tCloning : %s/%s".format(owner, repo)
     println(("\b" * 200) + msg)
 
     apiKey = keychain.getNextKey(apiKey, remaining, reset, isValid)
     res = Git.cloneRepository()
         .setDirectory(workinDir)
-        .setCredentialsProvider(new UsernamePasswordCredentialsProvider( "token", apiKey ))
+        .setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", apiKey ))
         .setCloneAllBranches(true)
         //.setProgressMonitor()
         .setURI(githubUrl + owner + "/" + repo)
@@ -90,12 +90,13 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
     // Process all commits
     val allCommits = getAllCommits(git)
     val cnt = allCommits.length
+    val tCnt = (cnt-1)
 
     val res = allCommits.reverse
       .zipWithIndex.map(x=> {
-          if (x._2 % 10 == 0 ){
-            val msg = "\r" + (new Date()) + "\t\t\t\t\t\tProcessing: (%s, %s):  %.2f%% of %7d commits"
-              .format(owner, repo, x._2*100.0/cnt, cnt, x._1.getId.name())
+          if (x._2 % 10 == 0 || x._2 == tCnt){
+            val msg = "\r" + (new Date()) + "\t\t\t\t\t\t\tProcessing: %s/%s:  %.2f%% of %7d commits"
+              .format(owner, repo, x._2*100.0/tCnt, cnt, x._1.getId.name())
             print(("\b" * msg.length) + msg)
           }
           x._1

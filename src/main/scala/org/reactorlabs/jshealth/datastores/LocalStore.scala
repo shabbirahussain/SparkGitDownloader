@@ -83,13 +83,11 @@ class LocalStore(batchSize: Int, fileStorePath: String) extends DataStore {
     execInBatch(Seq(
         """
           |UPDATE REPOS_QUEUE
-          |   SET COMPLETED   = TRUE,
-          |       CHECKOUT_ID = NULL,
-          |       RESULT      = '%s'
+          |   SET RESULT      = '%s'
           |WHERE REPO_OWNER = '%s'
           |  AND REPOSITORY = '%s'
           |  AND BRANCH     = '%s'
-        """.stripMargin.format(owner, escapeSql(repo), branch, escapeSql(err))
+        """.stripMargin.format(escapeSql(err), owner, escapeSql(repo), branch)
       ), autoCommit = true)
   }
 
@@ -103,7 +101,7 @@ class LocalStore(batchSize: Int, fileStorePath: String) extends DataStore {
       .load()
       .select($"REPO_OWNER", $"REPOSITORY", $"BRANCH")
       .filter($"COMPLETED" === false)
-      .filter($"CHECKOUT_ID" isNull)
+      .filter($"CHECKOUT_ID".isNull)
       .limit(limit)
       .rdd
 
