@@ -3,6 +3,7 @@ package org.reactorlabs.jshealth.repomanagers
 import java.io.{File, FileInputStream}
 import java.nio.charset.CodingErrorAction
 import java.nio.file.Paths
+import java.util.Date
 
 import com.google.common.io.Files
 import org.apache.commons.codec.digest.DigestUtils
@@ -50,26 +51,28 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
     res
   }
 
-  private def gitCloneRepo(owner: String, repo: String)
-  : (Git, File) = {
+  override def gitCloneRepo(owner: String, repo: String): Git = {
     var res: Git = null
     val workinDir = Paths.get(workingGitDir + "/" + owner + "/" + repo).toFile
     util.deleteRecursively(workinDir)
+
+    val msg = "\r" + (new Date()) +"\tCloning : (%s, %s)".format(owner, repo)
+    println(("\b" * 200) + msg)
 
     apiKey = keychain.getNextKey(apiKey, remaining, reset, isValid)
     res = Git.cloneRepository()
         .setDirectory(workinDir)
         .setCredentialsProvider(new UsernamePasswordCredentialsProvider( "token", apiKey ))
         .setCloneAllBranches(true)
-        //      .setProgressMonitor()
+        //.setProgressMonitor()
         .setURI(githubUrl + owner + "/" + repo)
         .call()
 
     isValid = true
-    (res, workinDir)
+    res
   }
 
-  private def getRepoFilesHistory(git: Git)
+  override def getRepoFilesHistory(git: Git)
   : Seq[FileHashTuple] = {
     def getDiff(oldTreeIter: AbstractTreeIterator, newTreeIter: AbstractTreeIterator)
     : mutable.Buffer[DiffEntry] = {
@@ -77,25 +80,21 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
     }
 
     val repository  = git.getRepository
+    val dir         = repository.getDirectory
+    val repo        = dir.getParentFile.getName
+    val owner       = dir.getParentFile.getParentFile.getName
     val reader      = repository.newObjectReader
     var oldTreeIter: AbstractTreeIterator = new EmptyTreeIterator()
     var newTreeIter: CanonicalTreeParser  = new CanonicalTreeParser()
-
-    // Get all interesting files from head. We will only track history of these files.
-//    newTreeIter.reset(reader, repository.resolve("HEAD^{tree}"))
-//    val headFiles = getDiff(oldTreeIter = oldTreeIter, newTreeIter = newTreeIter)
-//      .map(x=> x.getNewPath)
-//      .filter(x=> extensions.contains(Files.getFileExtension(x)))
-//      .toSet
-//    if (headFiles.isEmpty) throw new Exception("No interesting files found in head. Skipping.")
 
     // Process all commits
     val allCommits = getAllCommits(git)
     val cnt = allCommits.length
 
-    val res = allCommits.reverse.zipWithIndex
-      .map(x=> {
-          val msg = "\tProcessing:  %.2f%% of %7d commits. Current Commit=%s".format(x._2*100.0/cnt, cnt, x._1.getId.name())
+    val res = allCommits.reverse
+      .zipWithIndex.map(x=> {
+          val msg = "\r" + (new Date()) + "\t\t\t\t\tProcessing: (%s, %s):  %.2f%% of %7d commits"
+            .format(owner, repo, x._2*100.0/cnt, cnt, x._1.getId.name())
           print(("\b" * msg.length) + msg)
           x._1
       })
@@ -105,11 +104,7 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
           newTreeIter = new CanonicalTreeParser()
           newTreeIter.reset(reader, repository.resolve(x.getTree.getName))
 
-          val diffs = getDiff(oldTreeIter = oldTreeIter, newTreeIter = newTreeIter)
-
-          ret = diffs
-//            .filter(x=> (x.getChangeType == DiffEntry.ChangeType.ADD) || (x.getChangeType == DiffEntry.ChangeType.MODIFY))
-//            .filter(x=> headFiles.contains(x.getNewPath))
+          ret = getDiff(oldTreeIter = oldTreeIter, newTreeIter = newTreeIter)
             .map(y=> {
               if(y.getChangeType == DiffEntry.ChangeType.DELETE)
                 (y.getOldPath,  null)
@@ -118,8 +113,8 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
             })
             .filter(y=> extensions.contains(Files.getFileExtension(y._1)))
             .map(y => {
-              FileHashTuple(owner = null,
-                repo      = null,
+              FileHashTuple(owner = owner,
+                repo      = repo,
                 branch    = x.getTree.getName,
                 gitPath   = y._1,
                 fileHash  = y._2,
@@ -136,44 +131,5 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
         ret
       })
     res
-  }
-
-  override def getFileCommits(owner: String, repo: String, branch: String)
-  : (Seq[FileHashTuple], Option[File], String) = {
-    var res:  Seq[FileHashTuple] = Seq()
-    var file: Option[File] = None
-    var msg:  String = null
-    try{
-      print("\tCloning")
-      val (git, foldr) = gitCloneRepo(owner, repo)
-      file = Some(foldr)
-
-      print("\tProcessing")
-      res = getRepoFilesHistory(git)
-          .map (x=> FileHashTuple(
-            owner     = owner,
-            repo      = repo,
-            branch    = x.branch,
-            gitPath   = x.gitPath,
-            fileHash  = x.fileHash,
-            commitId  = x.commitId,
-            commitTime= x.commitTime
-          ))
-
-    } catch{
-      case e:NoRemoteRepositoryException => {
-        msg = e.getMessage
-        logger.log(Level.ERROR, e.getMessage)
-      }
-      case e:InvalidRemoteException =>{
-        msg = e.getMessage
-        logger.log(Level.ERROR, e.getMessage)
-      }
-      case e:Exception => logger.log(Level.ERROR, e.getMessage)
-        e.printStackTrace()
-        msg = e.getMessage
-        logger.log(Level.ERROR, e.getMessage)
-    }
-    (res, file, msg)
   }
 }

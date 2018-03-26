@@ -71,8 +71,7 @@ class LocalStore(batchSize: Int, fileStorePath: String) extends DataStore {
       .map(row =>
         """
             |UPDATE REPOS_QUEUE
-            |   SET COMPLETED   = TRUE,
-            |       CHECKOUT_ID = NULL
+            |   SET COMPLETED   = TRUE
             |WHERE REPO_OWNER = '%s'
             |  AND REPOSITORY = '%s'
             |  AND BRANCH     = '%s'
@@ -126,7 +125,7 @@ class LocalStore(batchSize: Int, fileStorePath: String) extends DataStore {
     (rdd.map(x=> (x.get(0).toString, x.get(1).toString, x.get(2).toString)), token)
   }
 
-  override def storeHistory(fht: RDD[FileHashTuple])
+  override def storeHistory(fht: RDD[FileHashTuple], folder: String)
   : Unit = {
     fht
       .map(row => {
@@ -135,7 +134,7 @@ class LocalStore(batchSize: Int, fileStorePath: String) extends DataStore {
           .replaceAll(""""null"""", "")
       })
       .coalesce(1, shuffle = true)
-      .saveAsTextFile(fileStorePath + System.currentTimeMillis(), classOf[BZip2Codec])
+      .saveAsTextFile(fileStorePath + folder, classOf[BZip2Codec])
   }
 
   override def loadProjectsQueue(projects: RDD[String], flushExisting: Boolean)

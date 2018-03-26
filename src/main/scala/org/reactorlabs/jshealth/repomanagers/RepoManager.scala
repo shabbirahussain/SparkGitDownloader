@@ -2,19 +2,25 @@ package org.reactorlabs.jshealth.repomanagers
 
 import java.io.File
 
+import org.eclipse.jgit.api.Git
 import org.reactorlabs.jshealth.models.FileHashTuple
 
 /**
   * @author shabbirahussain
   */
 trait RepoManager {
-
-  /** Given an URL fetches all the commits of that file.
+  /** Given a git repo fetches file history from it.
     *
-    * @param owner is the owner of the git repo.
-    * @param repo is the git repository.
-    * @param branch is the branch of the git.
-    * @return a sequence of file commits entries from git API.
+    * @param git is the git repo to fetch history from.
+    * @return a sequence of commits from that repo.
     */
-  def getFileCommits(owner: String, repo:String, branch:String): (Seq[FileHashTuple], Option[File], String)
+  def getRepoFilesHistory(git: Git): Seq[FileHashTuple]
+
+  /** Clones a given git repository.
+    *
+    * @param owner is the owner of the repo.
+    * @param repo is the repo name.
+    * @return a cloned git repo.
+    */
+  def gitCloneRepo(owner: String, repo: String): Git
 }
