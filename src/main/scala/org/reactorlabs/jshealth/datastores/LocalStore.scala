@@ -75,7 +75,7 @@ class LocalStore(batchSize: Int, fileStorePath: String) extends DataStore {
             |WHERE REPO_OWNER = '%s'
             |  AND REPOSITORY = '%s'
             |  AND BRANCH     = '%s'
-        """.stripMargin.format(row._1, escapeSql(row._2), row._3)
+        """.stripMargin.format(escapeSql(row._1), escapeSql(row._2), row._3)
       ), autoCommit = true)
   }
 
@@ -87,7 +87,7 @@ class LocalStore(batchSize: Int, fileStorePath: String) extends DataStore {
           |WHERE REPO_OWNER = '%s'
           |  AND REPOSITORY = '%s'
           |  AND BRANCH     = '%s'
-        """.stripMargin.format(escapeSql(err), owner, escapeSql(repo), branch)
+        """.stripMargin.format(escapeSql(err), escapeSql(owner), escapeSql(repo), branch)
       ), autoCommit = true)
   }
 
@@ -104,6 +104,7 @@ class LocalStore(batchSize: Int, fileStorePath: String) extends DataStore {
       .filter($"CHECKOUT_ID".isNull)
       .limit(limit)
       .rdd
+      .map(x=> (x.get(0).toString, x.get(1).toString, x.get(2).toString))
 
     val token = System.currentTimeMillis()
 
@@ -116,11 +117,10 @@ class LocalStore(batchSize: Int, fileStorePath: String) extends DataStore {
               |WHERE REPO_OWNER   = '%s'
               |  AND REPOSITORY   = '%s'
               |  AND BRANCH       = '%s';
-            """.stripMargin.format(token, row.get(0), escapeSql(row.get(1).toString), row.get(2))
+            """.stripMargin.format(token, escapeSql(row._1), escapeSql(row._2), row._3)
         }), batchSize = limit, autoCommit = false
     )
-
-    (rdd.map(x=> (x.get(0).toString, x.get(1).toString, x.get(2).toString)), token)
+    (rdd, token)
   }
 
   override def storeHistory(fht: RDD[FileHashTuple], folder: String)

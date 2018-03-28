@@ -19,13 +19,14 @@ import akka.stream.ActorAttributes.supervisionStrategy
 import akka.stream.{ActorMaterializer, OverflowStrategy, Supervision}
 import akka.stream.Supervision.resumingDecider
 import akka.stream.scaladsl.{Sink, Source}
+import org.apache.spark.storage.StorageLevel
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.errors.{InvalidRemoteException, TransportException}
 import org.eclipse.jgit.errors.NoRemoteRepositoryException
 
 import scala.concurrent.duration.Duration
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.util.{Failure, Try}
+import scala.util.{Failure, Random, Try}
 /**
   * @author shabbirahussain
   */
@@ -33,11 +34,12 @@ object Main {
   private val extensions  = prop.getProperty("git.download.extensions")
     .toLowerCase.split(",").map(_.trim).toSet
   private val keychain        = new Keychain(prop.getProperty("git.api.keys.path"))
-  private val gitPath         = prop.getProperty("git.repo.path")
+  private val gitPath         = new File(prop.getProperty("git.repo.path"))
   private val crawlBatchSize  = prop.getProperty("git.crawl.batch.size").toInt
   private val numWorkers      = prop.getProperty("git.downloader.numworkers").toInt
   private val clonedRepoBuff  = prop.getProperty("git.downloader.clonedrepo.buffer").toInt
-  private val gitHub: RepoManager  = new GitHubClient(extensions = extensions, gitPath, keychain)
+  private val gitHub: RepoManager = new GitHubClient(extensions = extensions, gitPath.toPath.toAbsolutePath.toString, keychain)
+
 
   implicit val system: ActorSystem = ActorSystem("QuickStart")
   implicit val materializer: ActorMaterializer = ActorMaterializer()
@@ -46,8 +48,9 @@ object Main {
     case _: NullPointerException => Supervision.Stop
     case _: InvalidRemoteException => Supervision.Resume
     case e: TransportException => {
-      if (e.getMessage.contains("400 Bad Request")) Supervision.Resume
-      else Supervision.Restart
+//      if (e.getMessage.contains("400 Bad Request")) Supervision.Resume
+//      else Supervision.Restart
+      Supervision.Resume
     }
     case _ => Supervision.Resume
   }
@@ -59,6 +62,7 @@ object Main {
   def crawlFileHistory()
   : Boolean = {
     val (links, token) = dataStore.checkoutReposToCrawl(crawlBatchSize)
+    links.persist(StorageLevel.DISK_ONLY)
 
     val fht = links
       .mapPartitions(_.grouped(100), preservesPartitioning = true)
@@ -72,24 +76,25 @@ object Main {
           val future: Future[Seq[Seq[FileHashTuple]]] = Source.fromIterator(()=> y.iterator)
             // Clone the git repo
             .mapAsyncUnordered(numWorkers * 2)(x=> Future{
-              Try(gitHub.gitCloneRepo(x._1, x._2))
-                match {
-                  case _ @ Failure(e) =>
-                    // Log all errors to the database
-                    logger.log(Level.ERROR, e.getMessage)
-                    dataStore.markRepoError(owner = x._1, repo = x._2, branch = x._3, err = e.getMessage)
-
-                    e match {
-                      case _: TransportException | _: InvalidRemoteException =>
-                      case e: Throwable => e.printStackTrace()
-                    }
-                    throw e
-                  case success @ _ => success.get
-                }
-            }).withAttributes(supervisionStrategy(decider))
+                Try(gitHub.gitCloneRepo(x._1, x._2))
+                  match {
+                    case _ @ Failure(e) =>
+                      // Log all errors to the database
+                      logger.log(Level.ERROR, e.getMessage)
+                      dataStore.markRepoError(owner = x._1, repo = x._2, branch = x._3, err = e.getMessage)
+                      e match {
+                        case _: TransportException | _: InvalidRemoteException =>
+                        case e: Throwable => e.printStackTrace()
+                      }
+                      throw e
+                    case success @ _ => success.get
+                  }
+            })
+            .withAttributes(supervisionStrategy(decider))
             .buffer(clonedRepoBuff, OverflowStrategy.backpressure)
             // Process the cloned repo
             .mapAsyncUnordered(numWorkers)(git=> Future{
+              val dir = git.getRepository.getDirectory.getParentFile
               Try((gitHub.getRepoFilesHistory(git), git.getRepository.getDirectory.getParentFile))
               match {
                 case _ @ Failure(e) =>
@@ -100,10 +105,11 @@ object Main {
                   throw e
                 case success @ _ => success.get
               }
-            }).withAttributes(supervisionStrategy(decider))
+            })
+            .withAttributes(supervisionStrategy(decider))
             // Delete finished repos
             .map(x=> {
-              if (x._1.count(_=> true) > 0)
+              if (x._1.count(_=> true) >= 0) // Force count to read all records in memory before deleting
                 util.deleteRecursively(x._2)
               x._1
             })
@@ -111,9 +117,11 @@ object Main {
           Await.result(future, Duration.Inf).flatten
         })
     dataStore.storeHistory(fht, token.toString)
-    dataStore.markRepoCompleted(fht.map(x=> (x.owner, x.repo, x.branch)).distinct)
+    dataStore.markRepoCompleted(links.map(x=> (x._1, x._2, x._3)).distinct)
 
-    (links.count() > 0)
+    val res = !links.isEmpty()
+    links.unpersist(blocking = false)
+    res
   }
 
   def main(args: Array[String])
@@ -122,7 +130,7 @@ object Main {
 
     var continue = true
     do{
-      util.deleteRecursively(Paths.get(gitPath).toFile)
+      util.deleteRecursively(gitPath)
       continue = crawlFileHistory()
     } while(continue)
 
