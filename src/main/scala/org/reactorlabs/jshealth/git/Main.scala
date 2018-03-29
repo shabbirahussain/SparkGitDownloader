@@ -95,23 +95,20 @@ object Main {
             // Process the cloned repo
             .mapAsyncUnordered(numWorkers)(git=> Future{
               val dir = git.getRepository.getDirectory.getParentFile
-              Try((gitHub.getRepoFilesHistory(git), git.getRepository.getDirectory.getParentFile))
+              val commits = Try(gitHub.getRepoFilesHistory(git))
               match {
                 case _ @ Failure(e) =>
                   val repo = git.getRepository.getDirectory
                   // Log all errors to the database
                   logger.log(Level.ERROR, e.getMessage)
                   dataStore.markRepoError(owner = repo.getParentFile.getName, repo = repo.getName, branch = "master", err=e.getMessage)
-                  throw e
+                  Seq.empty
                 case success @ _ => success.get
               }
-            })
-            .withAttributes(supervisionStrategy(decider))
-            // Delete finished repos
-            .map(x=> {
-              if (x._1.count(_=> true) >= 0) // Force count to read all records in memory before deleting
-                util.deleteRecursively(x._2)
-              x._1
+              // Delete finished repos
+              if (commits.count(_=> true) >= 0)
+                util.deleteRecursively(dir)
+              commits
             })
             .runWith(Sink.seq)
           Await.result(future, Duration.Inf).flatten
