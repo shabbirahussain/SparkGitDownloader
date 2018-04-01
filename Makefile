@@ -37,7 +37,16 @@ run:
 	 	--jars "${FULL_RUNTIME_JARS}" \
     	--class org.reactorlabs.jshealth.Main "${JAR_NAME}" "${INPUT_PATH}"
 ss:
-	${SPARK_BIN_PATH}/spark-shell --driver-memory 7G --executor-memory 7G --executor-cores 3 --jars=${FULL_RUNTIME_JARS}
+	${SPARK_BIN_PATH}/spark-shell --driver-memory 7G --executor-memory 7G --executor-cores 3 \
+	--jars=${FULL_RUNTIME_JARS} \
+	--conf spark.checkpoint.compress=true
+
+
+aws_ss:
+	spark-shell --driver-memory 5G --executor-memory 5G \
+	--conf spark.checkpoint.compress=true \
+	--conf spark.executor.extraClassPath="/etc/hadoop/conf:/etc/hive/conf:/usr/lib/hadoop-lzo/lib/*:/usr/share/aws/aws-java-sdk/*:/usr/share/aws/emr/emrfs/conf:/usr/share/aws/emr/emrfs/lib/*:/usr/share/aws/emr/emrfs/auxlib/*" \
+	--conf spark.driver.extraClassPath="/etc/hadoop/conf:/etc/hive/conf:/usr/lib/hadoop-lzo/lib/*:/usr/share/aws/aws-java-sdk/*:/usr/share/aws/emr/emrfs/conf:/usr/share/aws/emr/emrfs/lib/*:/usr/share/aws/emr/emrfs/auxlib/*"
 
 
 setup: clean mvn_install build

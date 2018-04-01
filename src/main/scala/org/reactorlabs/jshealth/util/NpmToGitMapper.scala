@@ -1,6 +1,8 @@
 package org.reactorlabs.jshealth.util
 
-import org.reactorlabs.jshealth.Main.{dataStore, spark}
+import org.reactorlabs.jshealth.Main.{dataStore, spark, sc}
+import org.reactorlabs.jshealth.analysis.Analysis.orig
+
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, SQLContext}
 import org.apache.spark.sql.functions._
@@ -8,9 +10,6 @@ import java.io.{FileNotFoundException, IOException}
 import java.net.{ConnectException, MalformedURLException, URL}
 import javax.net.ssl.HttpsURLConnection
 import java.util.regex.Pattern
-
-import org.reactorlabs.jshealth.analysis.Analysis.orig
-
 import scala.io.Source
 
 /**
@@ -84,11 +83,11 @@ class NpmToGitMapper extends Serializable {
       temp = temp.filter($"O_GIT_PATH".contains("node_modules/")).
         withColumn("O_GIT_PATH", $"O_GIT_PATH".substr(instr($"O_GIT_PATH", "node_modules/") + 13, lit(10000))).
         distinct.checkpoint(true)
-      res = res.union(temp.select(split($"O_GIT_PATH", "/")(0).as("REPO"))).distinct.checkpoint(true)
+      res = res.union(temp.select(split($"O_GIT_PATH", "/")(0).as("REPO"))).checkpoint(true)
       cntNode = temp.count
       println(cntNode)
     } while (cntNode > 0)
-    res
+    res.distinct
   }
 
 
@@ -105,6 +104,22 @@ class NpmToGitMapper extends Serializable {
       map[Option[(String, String)]](x=> extractInfoFromResponse(x)).
       filter(_.isDefined).map(_.get)
   }
+
+  def getEssentialNodeGitRepos(file: String): RDD[(String, String)] = {
+    sc.textFile(file).
+      map[Option[String]](x=> getGitInfoFromNPMRegistry(x)).
+      filter(_.isDefined).map(_.get).
+      map[Option[(String, String)]](x=> extractInfoFromResponse(x)).
+      filter(_.isDefined).map(_.get)
+  }
+
+
+  /*
+      repos.map[Option[String]](x=> getGitInfoFromNPMRegistry(x)).
+      filter(_.isDefined).map(_.get).
+      map[Option[(String, String)]](x=> extractInfoFromResponse(x)).
+      filter(_.isDefined).map(_.get)
+  */
 }
 
 object NpmToGitMapper{
@@ -112,7 +127,12 @@ object NpmToGitMapper{
 
   def main(args: Array[String]): Unit = {
     //    println(obj.extractInfoFromResponse(obj.getGitInfoFromNPMRegistry("astw").get).get)
-    val repos = obj.getEssentialNodeGitRepos(orig).map(x=> x._1 + "/" + x._2)
+    //    val repos = obj.getEssentialNodeGitRepos(orig).map(x=> x._1 + "/" + x._2)
+
+    val repos = obj.
+      getEssentialNodeGitRepos("s3://shabbirhussain/node_modules").
+//      getEssentialNodeGitRepos("/Users/shabbirhussain/Google Drive/NEU/Notes/CS 8678 Project/Déjà vu Episode II - Attack of The Clones/Data/node_modules.txt").
+      map(x=> {println(x); x._1 + "/" + x._2})
     dataStore.loadProjectsQueue(repos)
   }
 }
