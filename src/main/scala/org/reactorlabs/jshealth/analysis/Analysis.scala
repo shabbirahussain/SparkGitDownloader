@@ -2,7 +2,7 @@ package org.reactorlabs.jshealth.analysis
 
 import org.reactorlabs.jshealth.Main.{prop, sc, spark}
 
-object Analysis {
+object Analysis  {
   import org.apache.hadoop.io.compress.BZip2Codec
   import org.apache.spark.sql.{SQLContext, SparkSession, Column, DataFrame}
   import breeze.util.BloomFilter
@@ -17,11 +17,12 @@ object Analysis {
 
   val sqlContext: SQLContext = spark.sqlContext
   import sqlContext.implicits._
-  sc.setCheckpointDir("/Users/shabbirhussain/Data/project/temp/")
-  sc.setLocalProperty("spark.checkpoint.compress", "true")
-  sc.setLocalProperty("spark.cleaner.referenceTracking.cleanCheckpoints", "true")
-  sc.setLocalProperty("spark.rdd.compress", "true")
   sc.setLogLevel("ERROR")
+  sc.setCheckpointDir("/Users/shabbirhussain/Data/project/temp/")
+  sc.setLocalProperty("spark.cleaner.referenceTracking.cleanCheckpoints", "true")
+
+  sc.setLocalProperty("spark.checkpoint.compress", "true")
+//  sc.setLocalProperty("spark.rdd.compress", "true")
 
   val customSchema = StructType(Array(
     StructField("REPO_OWNER",   StringType, nullable = false),
@@ -41,7 +42,7 @@ object Analysis {
   val rawData = sqlContext.read.format("csv").
     option("delimiter",",").option("quote","\"").schema(customSchema).
 //    load("s3://shabbirhussain/FILE_HASH_HISTORY/*/*/").
-    load("/Users/shabbirhussain/Google Drive/NEU/Notes/CS 8678 Project/Déjà vu Episode II - Attack of The Clones/Data/FILE_HASH_HISTORY/*/*/").
+    load("/Users/shabbirhussain/Google Drive/NEU/Notes/CS 8678 Project/Déjà vu Episode II - Attack of The Clones/Data/FILE_HASH_HISTORY/First10K/*/").
     distinct
 
   val allData = rawData.
@@ -76,6 +77,7 @@ object Analysis {
       $"GIT_PATH"   =!= $"O_GIT_PATH"
     ).
     filter(!($"O_HEAD_HASH_CODE".isNull && $"O_HEAD_COMMIT_TIME" === $"COMMIT_TIME")). // Ignore immediate moves
+    checkpoint(false).
     persist(StorageLevel.MEMORY_AND_DISK_SER)//checkpoint(true)
 
   // Count unique files in the head.
@@ -149,8 +151,6 @@ object Analysis {
 
     val headCopy = copy.filter($"COMMIT_TIME" === $"HEAD_COMMIT_TIME") // Pick head paths only.
 
-
-    /* --- Replaced by higher efficiency code below.
     // Copy path resembles original path
     val truePathCopy = headCopy.
       filter($"REPO_OWNER" =!= $"O_REPO_OWNER" || $"REPOSITORY" =!= $"O_REPOSITORY"). // They should have a different repo to compare
@@ -177,9 +177,9 @@ object Analysis {
 
     // Make bloom filter to single out only records which belong to an original repo from which someone copied something.
     val bf = makeBloomFilter(truePathCopy, Seq($"O_REPO_OWNER", $"O_REPOSITORY"), 0.0001)
-    */
 
 
+    /* Turns out datatype conversion is worse than a join
     val allCopyPathsXRepo = headCopy.
       withColumn("crc32(HASH_CODE)" , crc32($"HASH_CODE")).
       // Avoid self joining by localized group self join.
@@ -224,10 +224,7 @@ object Analysis {
 
     // Make bloom filter to single out only records which belong to an original repo from which someone copied something.
     val bf = makeBloomFilter(allCopyPathsXRepo, Seq($"O_REPO_OWNER", $"O_REPOSITORY"), 0.0001)
-
-
-
-
+    */
 
 
     // Get all the paths fingerprint present in the all repo upto a max(original commit point) used by the copier.
@@ -284,7 +281,7 @@ object Analysis {
       checkpoint(true)
 
 
-	// res =3380348
+	  // res = 3380348
     // TODO: What should we consider that path if it belongs to copy as import and then changed to something else?
     val copyAsImportCount = copyAsImportExamples.agg(sum("count(O_GIT_PATH)")).collect
 
@@ -436,6 +433,13 @@ object Analysis {
       drop("RANK")
   }
 
+
+
+  //    val dataFrame  = sc.parallelize(Seq(("a","b"),("a","c"))).toDF("REPO_OWNER", "REPOSITORY")
+  //    val cols = Seq($"REPO_OWNER", "REPOSITORY")
+  //    val falsePositiveRate = 0.001
+  // makeBloomFilter(dataFrame, cols)
+
   /** Generates a seq of bloom filters for the columns specified.
     *
     * @param dataFrame is the input dataframe to process.
@@ -444,14 +448,14 @@ object Analysis {
     * @return An indexed sequence of bloom filters in the order of the columns specified.
     */
   def makeBloomFilter(dataFrame: DataFrame, cols: Seq[Column], falsePositiveRate: Double = 0.001)
-  : IndexedSeq[BloomFilter[String]] = {
-    val temp  = dataFrame.select(cols:_*).distinct.rdd.persist(StorageLevel.MEMORY_ONLY_SER)
-    val iters = 0 to cols.length
-    val numElem = iters.map(i=> temp.map(_(i)).distinct.count)
+  : Seq[BloomFilter[String]] = {
+    val temp  = dataFrame.select(cols:_*).distinct.persist(StorageLevel.MEMORY_ONLY)
+    val stats = temp.select(temp.columns.map(c=> approx_count_distinct(c, rsd= 0.1).as(c)): _*).collect()(0)
+    val rng   = cols.indices
 
-    val bloomFilters = temp.mapPartitions(y=> {
-      val bf = iters.map(x=> BloomFilter.optimallySized[String](numElem(x), falsePositiveRate))
-      iters.foreach(i=> temp.map(_(i)).distinct.foreach(x=> bf(i) += x.toString))
+    val bloomFilters = temp.rdd.mapPartitions(y=> {
+      val bf = rng.map(i=> BloomFilter.optimallySized[String](stats.getLong(i), falsePositiveRate))
+      y.foreach(row=> rng.foreach(i=> bf(i) += row.getAs[String](i)))
       Iterator(bf)
     }).reduce(_.zip(_).map(u => u._1 | u._2))
 
