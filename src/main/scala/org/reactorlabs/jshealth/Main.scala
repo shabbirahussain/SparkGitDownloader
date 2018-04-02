@@ -1,7 +1,6 @@
 package org.reactorlabs.jshealth
 
-import java.io.FileInputStream
-import java.util.{Date, Properties}
+import java.util.{Date, Properties, Scanner}
 import java.sql.DriverManager
 import java.sql.Connection
 
@@ -9,7 +8,6 @@ import org.apache.log4j.Logger
 import org.apache.spark.SparkContext
 import org.apache.spark.sql.{SQLContext, SparkSession}
 import org.reactorlabs.jshealth.datastores.{DataStore, LocalStore}
-import org.reactorlabs.jshealth.util.NpmToGitMapper
 
 import scala.collection.mutable
 import scala.io.Source
@@ -74,15 +72,23 @@ object Main extends Serializable {
 
   def main(args: Array[String])
   : Unit = {
-    println("Main")
+    var module: String = ""
+    if(args.length == 0) {
+      print("Please enter (ght/git) to select a module to execute:")
+      module = scala.io.StdIn.readLine()
+    } else {
+      module = args(0)
+    }
+
     var start = 0l
     println("started at:" + new Date())
     start = System.currentTimeMillis()
 
-
-//    ghtorrent.Main.main(Array[String]())
-    git.Main.main(Array[String]())
-//    NpmToGitMapper.main(Array[String]())
+    module match {
+      case "ght" => ghtorrent.Main.main(Array[String]())
+      case "git" => git.Main.main(Array[String]())
+      case _=> throw new Exception("Unsupported argument. Check readme for more info.")
+    }
 
     println("\nended at:" + new Date() + "\ttook:"+ (System.currentTimeMillis() - start))
   }

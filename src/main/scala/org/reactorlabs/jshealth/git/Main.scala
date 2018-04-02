@@ -8,7 +8,7 @@ import java.util.concurrent.{Executors, TimeUnit}
 import org.apache.log4j.Level
 import org.reactorlabs.jshealth.Main.{dataStore, logger, prop, sc, spark}
 import org.reactorlabs.jshealth.datastores.Keychain
-import org.reactorlabs.jshealth.models.{FileHashTuple, FileTypes}
+import org.reactorlabs.jshealth.models.FileHashTuple
 import org.reactorlabs.jshealth.repomanagers.{GitHubClient, RepoManager}
 import org.reactorlabs.jshealth.util
 
@@ -44,6 +44,7 @@ object Main {
   implicit val system: ActorSystem = ActorSystem("QuickStart")
   implicit val materializer: ActorMaterializer = ActorMaterializer()
 
+  // TODO: Add network timeout reload strategy.
   val decider: Supervision.Decider = {
     case _: NullPointerException => Supervision.Stop
     case _: InvalidRemoteException => Supervision.Resume
@@ -130,14 +131,5 @@ object Main {
       util.deleteRecursively(gitPath)
       continue = crawlFileHistory()
     } while(continue)
-
-//
-//    val (files, folder, errmsg) = gitHub.getFileCommits("shabbirahussain", "SparkTest", "master")
-//    val (files, folder, errmsg) = gitHub.getFileCommits("aFarkas", "webshim", "master")
-//    println("\n" + files.length)
-//    dataStore.storeHistory(files)
-//    files.foreach(println)
-//
-//    util.deleteRecursively(folder)
   }
 }

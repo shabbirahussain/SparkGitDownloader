@@ -8,14 +8,6 @@ import org.reactorlabs.jshealth.models.FileHashTuple
   * @author shabbirahussain
   */
 trait DataStore extends Serializable{
-
-  /** Verifies if particular file is already downloaded.
-    *
-    * @param filHash is the hash of file to check.
-    */
-//  def fileExists(filHash: String): Boolean
-//  def storeFile(filHash: String, data: String): Unit
-
   /** Loads the project queue.
     *
     * @param projects is the RDD of project URLs.

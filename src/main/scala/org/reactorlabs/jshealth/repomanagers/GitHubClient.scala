@@ -1,24 +1,20 @@
 package org.reactorlabs.jshealth.repomanagers
 
-import java.io.{File, FileInputStream}
 import java.nio.charset.CodingErrorAction
 import java.nio.file.Paths
 import java.util.Date
 
 import com.google.common.io.Files
-import org.apache.commons.codec.digest.DigestUtils
 import org.eclipse.jgit.diff.DiffEntry
 import org.apache.log4j.Level
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.errors.{CheckoutConflictException, InvalidRemoteException, NoHeadException}
-import org.eclipse.jgit.errors.NoRemoteRepositoryException
-import org.eclipse.jgit.lib.{ObjectId, Repository}
 import org.eclipse.jgit.revwalk.RevCommit
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
 import org.eclipse.jgit.treewalk.{AbstractTreeIterator, CanonicalTreeParser, EmptyTreeIterator}
 import org.reactorlabs.jshealth.Main.logger
 import org.reactorlabs.jshealth.datastores.Keychain
-import org.reactorlabs.jshealth.models.{FileHashTuple, FileTypes}
+import org.reactorlabs.jshealth.models.FileHashTuple
 import org.reactorlabs.jshealth.util
 
 import scala.collection.JavaConverters._

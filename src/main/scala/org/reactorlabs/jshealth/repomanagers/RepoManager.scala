@@ -1,7 +1,5 @@
 package org.reactorlabs.jshealth.repomanagers
 
-import java.io.File
-
 import org.eclipse.jgit.api.Git
 import org.reactorlabs.jshealth.models.FileHashTuple
 
