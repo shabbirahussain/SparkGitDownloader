@@ -116,3 +116,4 @@ hs_err_pid*
 target/
 spark-warehouse/
 src/main/scala/org/reactorlabs/jshealth/test1.scala
+/metastore_db/
