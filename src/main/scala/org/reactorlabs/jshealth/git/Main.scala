@@ -19,6 +19,7 @@ import akka.stream.ActorAttributes.supervisionStrategy
 import akka.stream.{ActorMaterializer, OverflowStrategy, Supervision}
 import akka.stream.Supervision.resumingDecider
 import akka.stream.scaladsl.{Sink, Source}
+import com.google.common.io.Files
 import org.apache.spark.storage.StorageLevel
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.errors.{InvalidRemoteException, TransportException}
@@ -34,12 +35,14 @@ object Main {
   private val extensions  = prop.getProperty("git.download.extensions")
     .toLowerCase.split(",").map(_.trim).toSet
   private val keychain        = new Keychain(prop.getProperty("git.api.keys.path"))
-  private val gitPath         = new File(prop.getProperty("git.repo.path"))
   private val crawlBatchSize  = prop.getProperty("git.crawl.batch.size").toInt
   private val numWorkers      = prop.getProperty("git.downloader.numworkers").toInt
   private val clonedRepoBuff  = prop.getProperty("git.downloader.clonedrepo.buffer").toInt
-  private val gitHub: RepoManager = new GitHubClient(extensions = extensions, gitPath.toPath.toAbsolutePath.toString, keychain)
-
+  private val gitPath         = {
+    var path = prop.getProperty("git.repo.path")
+    if (path.isEmpty) path = Files.createTempDir().getAbsolutePath
+    new File(path)
+  }
 
   implicit val system: ActorSystem = ActorSystem("QuickStart")
   implicit val materializer: ActorMaterializer = ActorMaterializer()
@@ -64,6 +67,12 @@ object Main {
   : Boolean = {
     val (links, token) = dataStore.checkoutReposToCrawl(crawlBatchSize)
     links.persist(StorageLevel.DISK_ONLY)
+
+    val gitHub: RepoManager = new GitHubClient(
+      extensions = extensions,
+      keychain   = keychain,
+      existingHash  = dataStore.getExistingHashes(),
+      workingGitDir = gitPath.toPath.toAbsolutePath.toString)
 
     val fht = links
       .mapPartitions(_.grouped(100), preservesPartitioning = true)
@@ -113,8 +122,16 @@ object Main {
             })
             .runWith(Sink.seq)
           Await.result(future, Duration.Inf).flatten
-        })
+        }).
+      persist(StorageLevel.MEMORY_AND_DISK_SER)
+
+    val contents = fht
+      .filter(x=> x.contents != null && !x.contents.isEmpty)
+      .map(x=> (x.fileHash, x.contents))
+
     dataStore.storeHistory(fht, token.toString)
+    if (!contents.isEmpty())
+      dataStore.storeFileContents(contents, token.toString)
     dataStore.markRepoCompleted(links.map(x=> (x._1, x._2, x._3)).distinct)
 
     val res = !links.isEmpty()

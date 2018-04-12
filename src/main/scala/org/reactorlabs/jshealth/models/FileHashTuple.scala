@@ -8,7 +8,9 @@ package org.reactorlabs.jshealth.models;
  * @param fileHash is the hash of the file.
  * @param error is a custom field carrying error message.
  * @param commitId is commit id of the file.
+ * @param shortMsg is commit message of the file.
  * @param commitTime is time file is committed.
+ * @param contents is the contents of the file.
  *
  * @author shabbirahussain
  */
@@ -19,7 +21,9 @@ case class FileHashTuple(owner:     String,
                          fileHash:  String = null,
                          error:     String = null,
                          commitId:  String = null,
-                         commitTime:Long = 0){
+                         shortMsg:  String = null,
+                         commitTime:Long = 0,
+                         contents:  String = null){
   override def toString
   : String = {
     "{" +
@@ -31,6 +35,7 @@ case class FileHashTuple(owner:     String,
       "'\n\t error: '"      + error +
       "'\n\t commitId: '"   + commitId +
       "'\n\t commitTime: '" + commitTime +
+      "'\n\t contentsEmpty: '"+ contents.isEmpty +
       "'\n}"
   }
 }

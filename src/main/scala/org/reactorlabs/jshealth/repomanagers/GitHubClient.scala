@@ -9,6 +9,7 @@ import org.eclipse.jgit.diff.DiffEntry
 import org.apache.log4j.Level
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.errors.{CheckoutConflictException, InvalidRemoteException, NoHeadException}
+import org.eclipse.jgit.lib.ObjectId
 import org.eclipse.jgit.revwalk.RevCommit
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
 import org.eclipse.jgit.treewalk.{AbstractTreeIterator, CanonicalTreeParser, EmptyTreeIterator}
@@ -23,13 +24,21 @@ import scala.io.{Codec, Source}
 
 /** Class responsible for downloading files from github.com. It serves as a wrapper over Git API.
   *
+  * @param extensions is the list of extensions to scan for.
+  * @param keychain is the keychain enabling github authentication.
+  * @param existingHash is the set of hashes which are already cloned.
+  * @param workingGitDir is the temporary directory to use for cloning.
+  *
   * @author shabbirahussain
   */
 @SerialVersionUID(100L)
-class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Keychain)
+class GitHubClient(extensions: Set[String],
+                   keychain: Keychain,
+                   existingHash: Set[String],
+                   workingGitDir: String)
   extends RepoManager with Serializable {
   private val githubUrl = "https://github.com/"
-  private val decoder = Codec.UTF8.decoder.onMalformedInput(CodingErrorAction.IGNORE)
+//  private val decoder = Codec.UTF8.decoder.onMalformedInput(CodingErrorAction.IGNORE)
 
   private var apiKey   : String   = _
   private var remaining: Int      = 1
@@ -45,6 +54,10 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
       case e: Exception =>       logger.log(Level.ERROR, e.getMessage)
     }
     res
+  }
+
+  private def getFileContents(rep: Git, objId: String): String = {
+    new String(rep.getRepository.open(ObjectId.fromString(objId)).getBytes,"UTF-8")
   }
 
   override def gitCloneRepo(owner: String, repo: String): Git = {
@@ -92,7 +105,7 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
       .zipWithIndex.map(x=> {
           if (x._2 % 10 == 0 || x._2 == tCnt){
             val msg = "\r" + (new Date()) + "\t\t\t\t\t\t\tProcessing: %s/%s:  %.2f%% of %7d commits"
-              .format(owner, repo, x._2*100.0/tCnt, cnt, x._1.getId.name())
+              .format(owner, repo, x._2*100.0/tCnt, cnt)
             print(("\b" * msg.length) + msg)
           }
           x._1
@@ -111,14 +124,20 @@ class GitHubClient(extensions: Set[String], workingGitDir: String, keychain: Key
                 (y.getNewPath, y.getNewId.name())
             })
             .filter(y=> extensions.contains(Files.getFileExtension(y._1)))
-            .map(y => {
+            .map(y=> {
+              var contents: String = null
+              if (!existingHash.contains(y._2) && y._2 != null)
+                contents = getFileContents(git, y._2)
+
               FileHashTuple(owner = owner,
                 repo      = repo,
                 branch    = x.getTree.getName,
                 gitPath   = y._1,
                 fileHash  = y._2,
                 commitId  = x.getId.name(),
-                commitTime= x.getCommitTime)
+                commitTime= x.getCommitTime,
+                shortMsg  = x.getShortMessage,
+                contents  = contents)
             })
 
           newTreeIter.reset(reader, repository.resolve(x.getTree.getName))

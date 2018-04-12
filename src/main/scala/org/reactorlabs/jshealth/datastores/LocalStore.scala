@@ -1,11 +1,16 @@
 package org.reactorlabs.jshealth.datastores
 
+import java.nio.file.Files
+
 import org.apache.spark.rdd.RDD
 import org.reactorlabs.jshealth.Main._
 import org.reactorlabs.jshealth.models.FileHashTuple
 import org.apache.commons.lang.StringEscapeUtils.escapeSql
 import org.apache.hadoop.io.compress.BZip2Codec
 import org.apache.log4j.Level
+import org.reactorlabs.jshealth.util.escapeString
+
+import java.io.File
 
 /**
   * @author shabbirahussain
@@ -127,12 +132,12 @@ class LocalStore(batchSize: Int, fileStorePath: String) extends DataStore {
   : Unit = {
     fht
       .map(row => {
-        """"%s","%s","%s","%s",%d""".stripMargin
-          .format(row.owner, row.repo, row.gitPath, row.fileHash, row.commitTime)
+        """"%s","%s","%s","%s",%d, "%s"""".stripMargin
+          .format(row.owner, row.repo, row.gitPath, row.fileHash, row.commitTime, escapeString(row.shortMsg))
           .replaceAll(""""null"""", "")
       })
-      .coalesce(1, shuffle = true)
-      .saveAsTextFile(fileStorePath + folder, classOf[BZip2Codec])
+      .coalesce(1, shuffle = false)
+      .saveAsTextFile(fileStorePath + "/data/history/" + folder, classOf[BZip2Codec])
   }
 
   override def loadProjectsQueue(projects: RDD[String], flushExisting: Boolean)
@@ -150,5 +155,28 @@ class LocalStore(batchSize: Int, fileStorePath: String) extends DataStore {
           """INSERT IGNORE INTO REPOS_QUEUE(REPO_OWNER, REPOSITORY) VALUES ('%s', '%s');"""
             .stripMargin.format(parts(0), escapeSql(parts(1)))
       }), autoCommit = true)
+  }
+
+  override def getExistingHashes()
+  : Set[String] = {
+    if (!new File(fileStorePath + "/indexes/").exists())
+      return Set.empty
+    sc.textFile(fileStorePath + "/indexes/*/").distinct.collect.toSet
+  }
+
+  override def storeFileContents(rdd: RDD[(String, String)], folder: String)
+  : Unit = {
+    rdd
+      .groupByKey
+      .map(row => {
+        """"%s",%s""".stripMargin.format(row._1, escapeString(row._2.head))
+      })
+      .coalesce(1, shuffle = false)
+      .saveAsTextFile(fileStorePath + "/data/files/" + folder, classOf[BZip2Codec])
+
+    rdd
+      .map(_._1)
+      .coalesce(1, shuffle = false)
+      .saveAsTextFile(fileStorePath + "/indexes/" + folder)
   }
 }

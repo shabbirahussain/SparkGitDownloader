@@ -2,6 +2,7 @@ package org.reactorlabs.jshealth
 
 import java.io.File
 import java.nio.file.Paths
+import scala.reflect.runtime.universe._
 
 /**
   * @author shabbirahussain
@@ -28,6 +29,8 @@ package object util {
         .flatMap(recursiveListFiles)
       )
   }
+
+  def escapeString(raw: String): String = Literal(Constant(raw)).toString
 
   def main(args: Array[String]): Unit = {
     deleteRecursively(Paths.get("/Users/shabbirhussain/Data/project/mysql-2018-02-01/git/aaronksaunders/TiMongoDBJS/build/iphone/build/Debug-iphoneos/question.app").toFile)

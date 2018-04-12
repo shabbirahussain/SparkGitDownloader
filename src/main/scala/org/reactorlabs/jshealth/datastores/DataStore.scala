@@ -34,7 +34,7 @@ trait DataStore extends Serializable{
     */
   def storeHistory(fht: RDD[FileHashTuple], folder: String): Unit
 
-  /** Marks a repo with error
+  /** Marks a repo with error.
     *
     * @param owner is the owner of the repo.
     * @param repo is the repo name.
@@ -42,4 +42,17 @@ trait DataStore extends Serializable{
     * @param err is the error message to update.
     */
   def markRepoError(owner: String, repo: String, branch: String, err: String): Unit
+
+  /** Loads a set of file hashes already cloned from a storage location.
+    *
+    * @return A set of file hashes.
+    */
+  def getExistingHashes(): Set[String]
+
+  /** Stores a list of file hashes to external.
+    *
+    * @param rdd is the RDD of file hash and content to store.
+    * @param folder is the output folder to save to.
+    */
+  def storeFileContents(rdd: RDD[(String, String)], folder: String): Unit
 }
