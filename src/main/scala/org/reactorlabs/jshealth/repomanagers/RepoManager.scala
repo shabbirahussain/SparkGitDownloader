@@ -10,9 +10,9 @@ trait RepoManager {
   /** Given a git repo fetches file history from it.
     *
     * @param git is the git repo to fetch history from.
-    * @return a sequence of commits from that repo.
+    * @return a sequence of commits from that repo and an optional contents field
     */
-  def getRepoFilesHistory(git: Git): Seq[FileHashTuple]
+  def getRepoFilesHistory(git: Git): Seq[(FileHashTuple, Option[String])]
 
   /** Clones a given git repository.
     *

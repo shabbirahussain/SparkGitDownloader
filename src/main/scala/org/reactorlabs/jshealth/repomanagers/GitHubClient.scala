@@ -8,7 +8,7 @@ import com.google.common.io.Files
 import org.eclipse.jgit.diff.DiffEntry
 import org.apache.log4j.Level
 import org.eclipse.jgit.api.Git
-import org.eclipse.jgit.api.errors.{CheckoutConflictException, InvalidRemoteException, NoHeadException}
+import org.eclipse.jgit.api.errors.{CheckoutConflictException, InvalidRemoteException, JGitInternalException, NoHeadException}
 import org.eclipse.jgit.lib.ObjectId
 import org.eclipse.jgit.revwalk.RevCommit
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
@@ -19,8 +19,14 @@ import org.reactorlabs.jshealth.models.FileHashTuple
 import org.reactorlabs.jshealth.util
 
 import scala.collection.JavaConverters._
+import java.util.concurrent.ConcurrentHashMap
+
+import org.eclipse.jgit.errors.MissingObjectException
+
+import scala.collection.concurrent.TrieMap
 import scala.collection.mutable
 import scala.io.{Codec, Source}
+import scala.util.{Failure, Try}
 
 /** Class responsible for downloading files from github.com. It serves as a wrapper over Git API.
   *
@@ -34,7 +40,7 @@ import scala.io.{Codec, Source}
 @SerialVersionUID(100L)
 class GitHubClient(extensions: Set[String],
                    keychain: Keychain,
-                   existingHash: Set[String],
+                   existingHash: TrieMap[String, Unit],
                    workingGitDir: String)
   extends RepoManager with Serializable {
   private val githubUrl = "https://github.com/"
@@ -46,14 +52,16 @@ class GitHubClient(extensions: Set[String],
   private var isValid  : Boolean  = false
 
   private def getAllCommits(rep: Git): Seq[RevCommit] = {
-    var res = Seq[RevCommit]()
-    try{
-      res = rep.log().call().asScala.toSeq
-    } catch {
-      case e: NoHeadException => logger.log(Level.WARN, "Empty Repo")
-      case e: Exception =>       logger.log(Level.ERROR, e.getMessage)
+    Try(rep.log().call().asScala.toSeq)
+    match {
+      case _ @ Failure(e) =>
+      e match{
+        case e: NoHeadException => logger.log(Level.WARN, "Empty Repo")
+        case e: Exception =>       logger.log(Level.ERROR, e.getMessage)
+      }
+      Seq.empty
+      case success @ _ => success.get
     }
-    res
   }
 
   private def getFileContents(rep: Git, objId: String): String = {
@@ -82,7 +90,7 @@ class GitHubClient(extensions: Set[String],
   }
 
   override def getRepoFilesHistory(git: Git)
-  : Seq[FileHashTuple] = {
+  : Seq[(FileHashTuple, Option[String])] = {
     def getDiff(oldTreeIter: AbstractTreeIterator, newTreeIter: AbstractTreeIterator)
     : mutable.Buffer[DiffEntry] = {
       git.diff.setNewTree(newTreeIter).setOldTree(oldTreeIter).call().asScala
@@ -99,9 +107,10 @@ class GitHubClient(extensions: Set[String],
     // Process all commits
     val allCommits = getAllCommits(git)
     val cnt = allCommits.length
-    val tCnt = (cnt-1)
+    val tCnt = cnt - 1
 
     val res = allCommits.reverse
+      // Progress monitor
       .zipWithIndex.map(x=> {
           if (x._2 % 10 == 0 || x._2 == tCnt){
             val msg = "\r" + (new Date()) + "\t\t\t\t\t\t\tProcessing: %s/%s:  %.2f%% of %7d commits"
@@ -111,25 +120,27 @@ class GitHubClient(extensions: Set[String],
           x._1
       })
       .flatMap(x=> {
-        var ret: Seq[FileHashTuple] = Seq()
-        try{
+        Try{
           newTreeIter = new CanonicalTreeParser()
           newTreeIter.reset(reader, repository.resolve(x.getTree.getName))
 
-          ret = getDiff(oldTreeIter = oldTreeIter, newTreeIter = newTreeIter)
+          val ret = getDiff(oldTreeIter = oldTreeIter, newTreeIter = newTreeIter)
             .map(y=> {
               if(y.getChangeType == DiffEntry.ChangeType.DELETE)
                 (y.getOldPath,  null)
               else
                 (y.getNewPath, y.getNewId.name())
             })
-            .filter(y=> extensions.contains(Files.getFileExtension(y._1)))
+//          .filter(y=> extensions.contains(Files.getFileExtension(y._1)))
             .map(y=> {
-              var contents: String = null
-              if (!existingHash.contains(y._2) && y._2 != null)
-                contents = getFileContents(git, y._2)
+              val contents = if (y._2 != null &&
+                  extensions.contains(Files.getFileExtension(y._1)) &&
+                  !existingHash.contains(y._2)){
+                existingHash.put(y._2, Unit)  // Maintain a local map
+                Some(getFileContents(git, y._2))
+              } else None
 
-              FileHashTuple(owner = owner,
+            (FileHashTuple(owner = owner,
                 repo      = repo,
                 branch    = x.getTree.getName,
                 gitPath   = y._1,
@@ -138,17 +149,25 @@ class GitHubClient(extensions: Set[String],
                 commitTime= x.getCommitTime,
                 shortMsg  = x.getShortMessage,
                 longMsg   = x.getFullMessage,
-                author    = x.getAuthorIdent.getEmailAddress,
-                contents  = contents)
+                author    = x.getAuthorIdent.getEmailAddress),
+              contents)
             })
 
           newTreeIter.reset(reader, repository.resolve(x.getTree.getName))
           oldTreeIter = newTreeIter
-        } catch {
-          case e: IllegalStateException     => logger.log(Level.WARN, e.getMessage)
-          case e: CheckoutConflictException => logger.log(Level.WARN, e.getMessage)
+          ret
+        } match {
+          case _@Failure(e) =>
+            e match {
+              case _: IllegalStateException =>
+              case _: CheckoutConflictException =>
+              case _: MissingObjectException =>
+              case _: JGitInternalException =>
+            }
+            //logger.log(Level.WARN, e.getMessage)
+            Seq.empty
+          case success@_ => success.get
         }
-        ret
       })
     res
   }

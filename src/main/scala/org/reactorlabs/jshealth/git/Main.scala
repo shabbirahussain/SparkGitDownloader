@@ -24,7 +24,10 @@ import org.apache.spark.storage.StorageLevel
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.errors.{InvalidRemoteException, TransportException}
 import org.eclipse.jgit.errors.NoRemoteRepositoryException
+import org.reactorlabs.jshealth.util.escapeString
 
+import scala.collection.concurrent.TrieMap
+import scala.collection.mutable
 import scala.concurrent.duration.Duration
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.{Failure, Random, Try}
@@ -59,6 +62,16 @@ object Main {
     case _ => Supervision.Resume
   }
 
+  private def getNewGitHubClient(): RepoManager = {
+    val map = TrieMap[String, Unit]()
+    dataStore.getExistingHashes().foreach(k=> map.put(k, Unit))
+    new GitHubClient(
+      extensions = extensions,
+      keychain   = keychain,
+      existingHash  = map ,
+      workingGitDir = gitPath.toPath.toAbsolutePath.toString)
+  }
+
   /** Crawls the files from the frontier queue and stores commit history back to database.
     *
     * @return status if current sprint had any files to work on.
@@ -69,22 +82,20 @@ object Main {
     links.persist(StorageLevel.DISK_ONLY)
     if (links.isEmpty()) return false
 
-    val gitHub: RepoManager = new GitHubClient(
-      extensions = extensions,
-      keychain   = keychain,
-      existingHash  = dataStore.getExistingHashes(),
-      workingGitDir = gitPath.toPath.toAbsolutePath.toString)
+    val gitHub = getNewGitHubClient()
 
     val fht = links
-      .mapPartitions(_.grouped(100), preservesPartitioning = true)
+      .mapPartitions(_.grouped(500), preservesPartitioning = true)
+      // Progress monitor map stage
       .map(x=> {
           val msg = "\r" + (new Date()) + "\tLoading next batch..."
           println("\b" * 200 + msg)
           logger.log(Level.INFO, msg)
           x
       })
+      // Data processing stage
       .flatMap(y=> {
-          val future: Future[Seq[Seq[FileHashTuple]]] = Source.fromIterator(()=> y.iterator)
+          val future = Source.fromIterator(()=> y.iterator)
             // Clone the git repo
             .mapAsyncUnordered(numWorkers * 2)(x=> Future{
                 Try(gitHub.gitCloneRepo(x._1, x._2))
@@ -105,7 +116,6 @@ object Main {
             .buffer(clonedRepoBuff, OverflowStrategy.backpressure)
             // Process the cloned repo
             .mapAsyncUnordered(numWorkers)(git=> Future{
-              val dir = git.getRepository.getDirectory.getParentFile
               val commits = Try(gitHub.getRepoFilesHistory(git))
               match {
                 case _ @ Failure(e) =>
@@ -116,28 +126,45 @@ object Main {
                   Seq.empty
                 case success @ _ => success.get
               }
+
+              // Create output splits
+              val res = commits
+                .filter(_._2.isDefined)
+                .map(x=>
+                  (("contents", x._1.fileHash), """%s""".format(escapeString(x._2.get)))) // Contents
+                .union(commits.map(x=>
+                  (("fht"
+                    , """%s","%s","%s","%s",%d""".format(x._1.owner
+                      , x._1.repo
+                      , x._1.gitPath
+                      , x._1.fileHash
+                      , x._1.commitTime))
+                    , """"%s",%s,%s,%s""".format(x._1.commitId
+                      , escapeString(x._1.author)
+                      , escapeString(x._1.shortMsg)
+                      , escapeString(x._1.longMsg))
+                      .replaceAll(""""null"""", ""))
+                )) // FileHashTuple
+                .union(commits.map(x=>
+                  (("commitMsg", """%s""".format(x._1.commitId))
+                    , """%s,%s""".format(escapeString(x._1.author), escapeString(x._1.longMsg)))
+                )) // Commit Messages
+                .union(commits.map(x=>
+                  (("indexes", x._1.fileHash), ""))) // Indexes
+
               // Delete finished repos
-              if (commits.count(_=> true) >= 0)
-                util.deleteRecursively(dir)
-              commits
+              if(res.count(_=> true) >= 0) // Force all data to be generated before deleting repo
+                  util.deleteRecursively(git.getRepository.getDirectory.getParentFile)
+              res
             })
             .runWith(Sink.seq)
           Await.result(future, Duration.Inf).flatten
-        }).
-      persist(StorageLevel.MEMORY_AND_DISK_SER)
-
-    val contents = fht
-      .filter(x=> x.contents != null && !x.contents.isEmpty)
-      .map(x=> (x.fileHash, x.contents))
+        })
 
     dataStore.storeHistory(fht, token.toString)
-    if (!contents.isEmpty())
-      dataStore.storeFileContents(contents, token.toString)
     dataStore.markRepoCompleted(links.map(x=> (x._1, x._2, x._3)).distinct)
 
-    fht.unpersist(blocking = false)
     links.unpersist(blocking = false)
-
     true
   }
 

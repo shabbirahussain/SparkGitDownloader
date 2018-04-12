@@ -9,8 +9,9 @@ import org.apache.commons.lang.StringEscapeUtils.escapeSql
 import org.apache.hadoop.io.compress.BZip2Codec
 import org.apache.log4j.Level
 import org.reactorlabs.jshealth.util.escapeString
-
 import java.io.File
+
+import scala.util.{Failure, Try}
 
 /**
   * @author shabbirahussain
@@ -128,23 +129,20 @@ class LocalStore(batchSize: Int, fileStorePath: String) extends DataStore {
     (rdd, token)
   }
 
-  override def storeHistory(fht: RDD[FileHashTuple], folder: String)
+  override def storeHistory(record: RDD[((String, String), String)], folder: String)
   : Unit = {
-    fht
-      .map(row => {
-        """"%s","%s","%s","%s",%d,%s,%s,%s""".stripMargin
-          .format(row.owner,
-            row.repo,
-            row.gitPath,
-            row.fileHash,
-            row.commitTime,
-            escapeString(row.author),
-            escapeString(row.shortMsg),
-            escapeString(row.longMsg))
-          .replaceAll(""""null"""", "")
-      })
-      .coalesce(1, shuffle = false)
-      .saveAsTextFile(fileStorePath + "/data/history/" + folder, classOf[BZip2Codec])
+    record
+      .groupByKey()
+      .mapValues(_.head)    // Remove duplicates
+      .map(x => (x._1._1, x._1._2 + (if (x._2.isEmpty) "" else "," + x._2)))
+      .toDF("SPLIT", "VALUE")
+      .write
+      .partitionBy("SPLIT")
+      .option("codec", classOf[BZip2Codec].getName)
+      .option("quote", "\u0000")
+      .option("delimiter", "\t")
+      .format("com.databricks.spark.csv")
+      .save(fileStorePath + "/" + folder)
   }
 
   override def loadProjectsQueue(projects: RDD[String], flushExisting: Boolean)
@@ -165,25 +163,11 @@ class LocalStore(batchSize: Int, fileStorePath: String) extends DataStore {
   }
 
   override def getExistingHashes()
-  : Set[String] = {
-    if (!new File(fileStorePath + "/indexes/").exists())
-      return Set.empty
-    sc.textFile(fileStorePath + "/indexes/*/").distinct.collect.toSet
-  }
-
-  override def storeFileContents(rdd: RDD[(String, String)], folder: String)
-  : Unit = {
-    rdd
-      .groupByKey
-      .map(row => {
-        """"%s",%s""".stripMargin.format(row._1, escapeString(row._2.head))
-      })
-      .coalesce(1, shuffle = false)
-      .saveAsTextFile(fileStorePath + "/data/files/" + folder, classOf[BZip2Codec])
-
-    rdd
-      .map(_._1)
-      .coalesce(1, shuffle = false)
-      .saveAsTextFile(fileStorePath + "/indexes/" + folder)
+  : Seq[String] = {
+    Try(sc.textFile(fileStorePath + "/*/SPLIT=indexes/").distinct.collect)
+    match {
+      case _ @Failure(e) => Seq.empty
+      case success @ _   => success.get
+    }
   }
 }

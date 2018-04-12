@@ -12,7 +12,6 @@ package org.reactorlabs.jshealth.models;
  * @param shortMsg is commit message of the file.
  * @param longMsg is full commit message.
  * @param commitTime is time file is committed.
- * @param contents is the contents of the file.
  *
  * @author shabbirahussain
  */
@@ -26,8 +25,7 @@ case class FileHashTuple(owner:     String,
                          author:    String = null,
                          shortMsg:    String = null,
                          longMsg:  String = null,
-                         commitTime:Long = 0,
-                         contents:  String = null){
+                         commitTime:Long = 0){
   override def toString
   : String = {
     "{" +
@@ -39,7 +37,6 @@ case class FileHashTuple(owner:     String,
       "'\n\t error: '"      + error +
       "'\n\t commitId: '"   + commitId +
       "'\n\t commitTime: '" + commitTime +
-      "'\n\t contentsEmpty: '"+ contents.isEmpty +
       "'\n}"
   }
 }

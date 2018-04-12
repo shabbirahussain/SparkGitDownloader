@@ -29,10 +29,10 @@ trait DataStore extends Serializable{
 
   /** Stores the file hash tuple history.
     *
-    * @param fht is the input tuple rdd.
+    * @param record is the input key value pair rdd. Here key is defined by partition and unique value.
     * @param folder is the output folder to save to.
     */
-  def storeHistory(fht: RDD[FileHashTuple], folder: String): Unit
+  def storeHistory(record: RDD[((String, String), String)], folder: String): Unit
 
   /** Marks a repo with error.
     *
@@ -47,12 +47,5 @@ trait DataStore extends Serializable{
     *
     * @return A set of file hashes.
     */
-  def getExistingHashes(): Set[String]
-
-  /** Stores a list of file hashes to external.
-    *
-    * @param rdd is the RDD of file hash and content to store.
-    * @param folder is the output folder to save to.
-    */
-  def storeFileContents(rdd: RDD[(String, String)], folder: String): Unit
+  def getExistingHashes(): Seq[String]
 }
