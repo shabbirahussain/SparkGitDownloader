@@ -3,6 +3,7 @@ package org.reactorlabs.jshealth
 import java.io.File
 import java.nio.file.Paths
 import scala.reflect.runtime.universe._
+import scala.util.Try
 
 /**
   * @author shabbirahussain
@@ -12,9 +13,7 @@ package object util {
   : Unit = {
     if (file.isDirectory)
       file.listFiles.foreach(deleteRecursively)
-    if (file.exists && !file.delete){
-      //throw new Exception(s"Unable to delete ${file.getAbsolutePath}")
-    }
+    Try(file.delete)
   }
 
   def recursiveListFiles(f: File)

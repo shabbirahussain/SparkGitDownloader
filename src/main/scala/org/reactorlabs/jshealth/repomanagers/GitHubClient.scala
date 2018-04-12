@@ -90,7 +90,7 @@ class GitHubClient(extensions: Set[String],
   }
 
   override def getRepoFilesHistory(git: Git)
-  : Seq[(FileHashTuple, Option[String])] = {
+  : Seq[FileHashTuple] = {
     def getDiff(oldTreeIter: AbstractTreeIterator, newTreeIter: AbstractTreeIterator)
     : mutable.Buffer[DiffEntry] = {
       git.diff.setNewTree(newTreeIter).setOldTree(oldTreeIter).call().asScala
@@ -136,21 +136,20 @@ class GitHubClient(extensions: Set[String],
               val contents = if (y._2 != null &&
                   extensions.contains(Files.getFileExtension(y._1)) &&
                   !existingHash.contains(y._2)){
-                existingHash.put(y._2, Unit)  // Maintain a local map
+                existingHash.+(y._2 -> Unit)  // Maintain a local map
                 Some(getFileContents(git, y._2))
               } else None
 
-            (FileHashTuple(owner = owner,
+            FileHashTuple(owner = owner,
                 repo      = repo,
                 branch    = x.getTree.getName,
                 gitPath   = y._1,
                 fileHash  = y._2,
                 commitId  = x.getId.name(),
                 commitTime= x.getCommitTime,
-                shortMsg  = x.getShortMessage,
                 longMsg   = x.getFullMessage,
-                author    = x.getAuthorIdent.getEmailAddress),
-              contents)
+                contents  = contents,
+                author    = x.getAuthorIdent.getEmailAddress)
             })
 
           newTreeIter.reset(reader, repository.resolve(x.getTree.getName))

@@ -9,8 +9,8 @@ package org.reactorlabs.jshealth.models;
  * @param error is a custom field carrying error message.
  * @param commitId is commit id of the file.
  * @param author is commit author.
- * @param shortMsg is commit message of the file.
  * @param longMsg is full commit message.
+ * @param contents is full content of the file at that commit.
  * @param commitTime is time file is committed.
  *
  * @author shabbirahussain
@@ -20,11 +20,11 @@ case class FileHashTuple(owner:     String,
                          branch:    String = "master",
                          gitPath:   String = "",
                          fileHash:  String = null,
-                         error:     String = null,
                          commitId:  String = null,
                          author:    String = null,
-                         shortMsg:    String = null,
-                         longMsg:  String = null,
+                         longMsg:   String = null,
+                         contents:  Option[String] = None,
+                         error:     Option[String] = None,
                          commitTime:Long = 0){
   override def toString
   : String = {

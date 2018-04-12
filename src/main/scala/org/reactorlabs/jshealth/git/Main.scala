@@ -8,7 +8,6 @@ import java.util.concurrent.{Executors, TimeUnit}
 import org.apache.log4j.Level
 import org.reactorlabs.jshealth.Main.{dataStore, logger, prop, sc, spark}
 import org.reactorlabs.jshealth.datastores.Keychain
-import org.reactorlabs.jshealth.models.FileHashTuple
 import org.reactorlabs.jshealth.repomanagers.{GitHubClient, RepoManager}
 import org.reactorlabs.jshealth.util
 
@@ -21,13 +20,11 @@ import akka.stream.Supervision.resumingDecider
 import akka.stream.scaladsl.{Sink, Source}
 import com.google.common.io.Files
 import org.apache.spark.storage.StorageLevel
-import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.errors.{InvalidRemoteException, TransportException}
 import org.eclipse.jgit.errors.NoRemoteRepositoryException
 import org.reactorlabs.jshealth.util.escapeString
 
 import scala.collection.concurrent.TrieMap
-import scala.collection.mutable
 import scala.concurrent.duration.Duration
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.{Failure, Random, Try}
@@ -85,6 +82,7 @@ object Main {
     val gitHub = getNewGitHubClient()
 
     val fht = links
+      .mapPartitions(x=> {util.deleteRecursively(gitPath); x})
       .mapPartitions(_.grouped(500), preservesPartitioning = true)
       // Progress monitor map stage
       .map(x=> {
@@ -129,28 +127,27 @@ object Main {
 
               // Create output splits
               val res = commits
-                .filter(_._2.isDefined)
+                .filter(_.contents.isDefined)
                 .map(x=>
-                  (("contents", x._1.fileHash), """%s""".format(escapeString(x._2.get)))) // Contents
+                  (("contents", x.fileHash), """%s""".format(escapeString(x.contents.get)))) // Contents
                 .union(commits.map(x=>
                   (("fht"
-                    , """%s","%s","%s","%s",%d""".format(x._1.owner
-                      , x._1.repo
-                      , x._1.gitPath
-                      , x._1.fileHash
-                      , x._1.commitTime))
-                    , """"%s",%s,%s,%s""".format(x._1.commitId
-                      , escapeString(x._1.author)
-                      , escapeString(x._1.shortMsg)
-                      , escapeString(x._1.longMsg))
+                    , """%s","%s","%s","%s",%d""".format(x.owner
+                      , x.repo
+                      , x.gitPath
+                      , x.fileHash
+                      , x.commitTime))
+                    , """"%s",%s,%s""".format(x.commitId
+                      , escapeString(x.author)
+                      , escapeString(x.longMsg))
                       .replaceAll(""""null"""", ""))
                 )) // FileHashTuple
                 .union(commits.map(x=>
-                  (("commitMsg", """%s""".format(x._1.commitId))
-                    , """%s,%s""".format(escapeString(x._1.author), escapeString(x._1.longMsg)))
+                  (("commitMsg", """%s""".format(x.commitId))
+                    , """%s,%s""".format(escapeString(x.author), escapeString(x.longMsg)))
                 )) // Commit Messages
                 .union(commits.map(x=>
-                  (("indexes", x._1.fileHash), ""))) // Indexes
+                  (("indexes", x.fileHash), ""))) // Indexes
 
               // Delete finished repos
               if(res.count(_=> true) >= 0) // Force all data to be generated before deleting repo
@@ -172,10 +169,10 @@ object Main {
   : Unit = {
     println("Git.Main")
 
-    var continue = true
+    var continue = false
     do{
-      util.deleteRecursively(gitPath)
       continue = crawlFileHistory()
     } while(continue)
+//    system.terminate()
   }
 }
