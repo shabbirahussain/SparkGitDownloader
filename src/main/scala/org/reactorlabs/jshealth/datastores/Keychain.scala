@@ -80,7 +80,7 @@ class Keychain(keyFilePath: String) extends Serializable {
 
     // Return a random key from available keys.
     if (available.nonEmpty){
-      return available(rnd.nextInt(available.length))
+      return available(rnd.nextInt(available.length - 1))
     }
     null
   }

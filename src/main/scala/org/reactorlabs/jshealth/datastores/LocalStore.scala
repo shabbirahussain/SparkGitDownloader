@@ -132,8 +132,15 @@ class LocalStore(batchSize: Int, fileStorePath: String) extends DataStore {
   : Unit = {
     fht
       .map(row => {
-        """"%s","%s","%s","%s",%d, "%s"""".stripMargin
-          .format(row.owner, row.repo, row.gitPath, row.fileHash, row.commitTime, escapeString(row.shortMsg))
+        """"%s","%s","%s","%s",%d,%s,%s,%s""".stripMargin
+          .format(row.owner,
+            row.repo,
+            row.gitPath,
+            row.fileHash,
+            row.commitTime,
+            escapeString(row.author),
+            escapeString(row.shortMsg),
+            escapeString(row.longMsg))
           .replaceAll(""""null"""", "")
       })
       .coalesce(1, shuffle = false)

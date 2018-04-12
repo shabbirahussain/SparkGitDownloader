@@ -67,6 +67,7 @@ object Main {
   : Boolean = {
     val (links, token) = dataStore.checkoutReposToCrawl(crawlBatchSize)
     links.persist(StorageLevel.DISK_ONLY)
+    if (links.isEmpty()) return false
 
     val gitHub: RepoManager = new GitHubClient(
       extensions = extensions,
@@ -134,9 +135,10 @@ object Main {
       dataStore.storeFileContents(contents, token.toString)
     dataStore.markRepoCompleted(links.map(x=> (x._1, x._2, x._3)).distinct)
 
-    val res = !links.isEmpty()
+    fht.unpersist(blocking = false)
     links.unpersist(blocking = false)
-    res
+
+    true
   }
 
   def main(args: Array[String])

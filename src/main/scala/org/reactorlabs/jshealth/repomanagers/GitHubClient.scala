@@ -137,6 +137,8 @@ class GitHubClient(extensions: Set[String],
                 commitId  = x.getId.name(),
                 commitTime= x.getCommitTime,
                 shortMsg  = x.getShortMessage,
+                longMsg   = x.getFullMessage,
+                author    = x.getAuthorIdent.getEmailAddress,
                 contents  = contents)
             })
 
