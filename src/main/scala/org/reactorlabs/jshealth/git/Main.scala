@@ -151,7 +151,6 @@ object Main {
         logger.log(Level.INFO, msg)
         dataStore.consolidateData()
       }
-
     } while(continue)
   }
 }

@@ -82,9 +82,10 @@ class LocalStore(batchSize: Int, fileStorePath: String, fs: FileSystem) extends 
         .write
         .partitionBy("SPLIT")
 
-    (if (compress) writer.option("codec", classOf[SnappyCodec].getName) else writer)
+    (if (compress) writer.option("codec", classOf[BZip2Codec].getName) else writer)
       .option("quote", quote)
       .option("delimiter", delimiter)
+      .option("header", "true")
       .format("com.databricks.spark.csv")
       .save("%s/%s/%s".format(fileStorePath, folder1,folder2))
   }
@@ -185,6 +186,7 @@ class LocalStore(batchSize: Int, fileStorePath: String, fs: FileSystem) extends 
     sqlContext.read
       .schema(meta._1)
       .option("quote", "\"")
+      .option("header", "true")
       .csv(fileStorePath + "/data/*/SPLIT=%s/".format(split))
       .dropDuplicates(meta._2)
   }
