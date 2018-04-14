@@ -7,7 +7,7 @@ import org.reactorlabs.jshealth.Main._
 import org.reactorlabs.jshealth.models.{FileHashTuple, Schemas}
 import org.apache.commons.lang.StringEscapeUtils.escapeSql
 import org.apache.hadoop.fs.{FileSystem, Path}
-import org.apache.hadoop.io.compress.BZip2Codec
+import org.apache.hadoop.io.compress._
 import org.apache.log4j.Level
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
@@ -74,13 +74,15 @@ class LocalStore(batchSize: Int, fileStorePath: String, fs: FileSystem) extends 
                     folder1: String,
                     folder2: String,
                     quote: String,
-                    delimiter: String)
+                    delimiter: String,
+                    coalesce: Boolean = false,
+                    compress: Boolean = false)
   : Unit = {
-    records
-      .coalesce(1)
-      .write
-      .partitionBy("SPLIT")
-      .option("codec", classOf[BZip2Codec].getName)
+    val writer = (if (coalesce) records.coalesce(1) else records)
+        .write
+        .partitionBy("SPLIT")
+
+    (if (compress) writer.option("codec", classOf[SnappyCodec].getName) else writer)
       .option("quote", quote)
       .option("delimiter", delimiter)
       .format("com.databricks.spark.csv")
@@ -192,7 +194,13 @@ class LocalStore(batchSize: Int, fileStorePath: String, fs: FileSystem) extends 
     fs.delete(new Path("%s/%s".format(fileStorePath, "temp")), true)
 
     Schemas.asMap.foreach(x=> {
-      store(read(x._1).withColumn("SPLIT", lit(x._1)), "temp", x._1, "\"", ",")
+      store(read(x._1).withColumn("SPLIT", lit(x._1))
+        , folder1 = "temp"
+        , folder2 = x._1
+        , quote = "\""
+        , delimiter = ","
+        , coalesce  = true
+        , compress  = true)
     })
     fs.delete(new Path("%s/data".format(fileStorePath)), true)
     fs.mkdirs(new Path("%s/data".format(fileStorePath)))

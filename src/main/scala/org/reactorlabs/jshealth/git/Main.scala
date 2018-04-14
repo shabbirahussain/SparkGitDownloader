@@ -66,7 +66,10 @@ object Main {
     val gitHub = getNewGitHubClient()
 
     val fht = links
-      .mapPartitions(x=> {fs.delete(new Path(gitPath.toURI), true); x.grouped(groupSize)}, preservesPartitioning = true)
+      .repartition(crawlBatchSize / groupSize)
+      .mapPartitions(x=> {
+        fs.delete(new Path(gitPath.toURI), true); x.grouped(groupSize)
+      }, preservesPartitioning = true)
       .map(x=> {
         val msg = "\n" + (new Date()) + "\tLoading next batch ..."
         println(msg)
@@ -89,7 +92,7 @@ object Main {
             }
           }), nThreads = numCores)) // Clone the git repo batch
       .map(_.filter(_.isDefined).map(_.get)) // Remove unsuccessful clones
-      .map(y=> new ExecutionQueue(y.map(git=> ()=> {
+      .map(y=> new ExecutionQueue(y.map(git=> ()=>{
             val repo = git.getRepository.getDirectory.getParentFile
             val commits = Try(gitHub.getRepoFilesHistory(git))
             match {
@@ -104,11 +107,11 @@ object Main {
             val res = commits
               .map(x =>
                 ("commitMsg", """%s""".format(x.commitId), """%s,%s""".format(x.author, escapeString(x.longMsg)))) // Commit Messages
+              .distinct
               .union(commits.map(x =>
                 ("indexes", x.fileHash, ""))) // Indexes
               .union(commits.filter(_.contents.isDefined).map(x =>
                 ("contents", x.fileHash, """%s""".format(escapeString(x.contents.get))))) // Contents
-              .distinct
               .union(commits.map(x =>
                 ("fht"
                   , """%s,%s,%s,%s,%d""".format(x.owner
@@ -119,12 +122,11 @@ object Main {
                   , """%s""".format(x.commitId))
               )) // FileHashTuple
 
-            if (commits.count(_=> true) >= 0) fs.delete(new Path(repo.toURI), true)
+            if (commits.count(_=>true) >=0) fs.delete(new Path(repo.toURI), true)
             res
-        }).toSeq, nThreads = numCores)) // Explode data into categories
+        }).toIterable, nThreads = numCores)) // Explode data into categories
       .flatMap(_.flatten)
       .toDF("SPLIT", "TRUE_KEY", "VALUE")
-    //      .dropDuplicates(Seq("SPLIT", "TRUE_KEY"))
       .select($"SPLIT",
         concat($"TRUE_KEY", when($"VALUE" === "", "").otherwise(","), $"VALUE"))
 

@@ -1,6 +1,5 @@
 package org.reactorlabs.jshealth.repomanagers
 
-import java.nio.charset.CodingErrorAction
 import java.nio.file.Paths
 import java.util.Date
 
@@ -16,16 +15,13 @@ import org.eclipse.jgit.treewalk.{AbstractTreeIterator, CanonicalTreeParser, Emp
 import org.reactorlabs.jshealth.Main.logger
 import org.reactorlabs.jshealth.datastores.Keychain
 import org.reactorlabs.jshealth.models.FileHashTuple
-import org.reactorlabs.jshealth.util
 
 import scala.collection.JavaConverters._
 
-import org.apache.hadoop.fs.{FileSystem, Path}
 import org.eclipse.jgit.errors.MissingObjectException
 
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable
-import scala.io.{Codec, Source}
 import scala.util.{Failure, Try}
 
 /** Class responsible for downloading files from github.com. It serves as a wrapper over Git API.
@@ -71,7 +67,6 @@ class GitHubClient(extensions: Set[String],
   override def gitCloneRepo(owner: String, repo: String): Git = {
     var res: Git = null
     val workinDir = Paths.get(workingGitDir + "/" + owner + "/" + repo).toFile
-    util.deleteRecursively(workinDir)
 
     val msg = "\r" + (new Date()) +"\tCloning : %s/%s".format(owner, repo)
     println(("\b" * 200) + msg)
