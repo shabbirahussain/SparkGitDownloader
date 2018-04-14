@@ -1,22 +1,23 @@
 package org.reactorlabs.jshealth.datastores
 
-import java.nio.file.Files
+import java.nio.file.{Files, Paths}
 
 import org.apache.spark.rdd.RDD
 import org.reactorlabs.jshealth.Main._
-import org.reactorlabs.jshealth.models.FileHashTuple
+import org.reactorlabs.jshealth.models.{FileHashTuple, Schemas}
 import org.apache.commons.lang.StringEscapeUtils.escapeSql
+import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.hadoop.io.compress.BZip2Codec
 import org.apache.log4j.Level
-import org.reactorlabs.jshealth.util.escapeString
-import java.io.File
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.functions._
 
 import scala.util.{Failure, Try}
 
 /**
   * @author shabbirahussain
   */
-class LocalStore(batchSize: Int, fileStorePath: String) extends DataStore {
+class LocalStore(batchSize: Int, fileStorePath: String, fs: FileSystem) extends DataStore {
   import sqlContext.implicits._
 
   /** Executes batch of sql statements.
@@ -67,6 +68,23 @@ class LocalStore(batchSize: Int, fileStorePath: String) extends DataStore {
       })
 
     connection.close()
+  }
+
+  private def store(records: DataFrame,
+                    folder1: String,
+                    folder2: String,
+                    quote: String,
+                    delimiter: String)
+  : Unit = {
+    records
+      .coalesce(1)
+      .write
+      .partitionBy("SPLIT")
+      .option("codec", classOf[BZip2Codec].getName)
+      .option("quote", quote)
+      .option("delimiter", delimiter)
+      .format("com.databricks.spark.csv")
+      .save("%s/%s/%s".format(fileStorePath, folder1,folder2))
   }
 
   // ================ API Methods ===================
@@ -129,21 +147,9 @@ class LocalStore(batchSize: Int, fileStorePath: String) extends DataStore {
     (rdd, token)
   }
 
-  override def storeHistory(record: RDD[((String, String), String)], folder: String)
-  : Unit = {
-    record
-      .groupByKey()
-      .mapValues(_.head)    // Remove duplicates
-      .map(x => (x._1._1, x._1._2 + (if (x._2.isEmpty) "" else "," + x._2)))
-      .toDF("SPLIT", "VALUE")
-      .write
-      .partitionBy("SPLIT")
-      .option("codec", classOf[BZip2Codec].getName)
-      .option("quote", "\u0000")
-      .option("delimiter", "\t")
-      .format("com.databricks.spark.csv")
-      .save(fileStorePath + "/" + folder)
-  }
+  override def storeHistory(records: DataFrame, folder: String)
+  : Unit = store(records, "data", folder, "\u0000", "\t")
+
 
   override def loadProjectsQueue(projects: RDD[String], flushExisting: Boolean)
   : Unit = {
@@ -158,16 +164,44 @@ class LocalStore(batchSize: Int, fileStorePath: String) extends DataStore {
         if (parts.length != 2)   null
         else
           """INSERT IGNORE INTO REPOS_QUEUE(REPO_OWNER, REPOSITORY) VALUES ('%s', '%s');"""
-            .stripMargin.format(parts(0), escapeSql(parts(1)))
+            .stripMargin.format(parts(0).toLowerCase(), escapeSql(parts(1)).toLowerCase())
       }), autoCommit = true)
   }
 
   override def getExistingHashes()
   : Seq[String] = {
-    Try(sc.textFile(fileStorePath + "/*/SPLIT=indexes/").distinct.collect)
+    Try(read("indexes").map(_.getAs[String](0)).collect)
     match {
       case _ @Failure(e) => Seq.empty
       case success @ _   => success.get
     }
+  }
+
+  // Readers
+  override def read(split: String): DataFrame = {
+    val meta = Schemas.asMap(key = split)
+    sqlContext.read
+      .schema(meta._1)
+      .option("quote", "\"")
+      .csv(fileStorePath + "/data/*/SPLIT=%s/".format(split))
+      .dropDuplicates(meta._2)
+  }
+
+  override def consolidateData(): Unit = {
+    val finalDestination = System.currentTimeMillis().toString
+    fs.delete(new Path("%s/%s".format(fileStorePath, "temp")), true)
+
+    Schemas.asMap.foreach(x=> {
+      store(read(x._1).withColumn("SPLIT", lit(x._1)), "temp", x._1, "\"", ",")
+    })
+    fs.delete(new Path("%s/data".format(fileStorePath)), true)
+    fs.mkdirs(new Path("%s/data".format(fileStorePath)))
+    Schemas.asMap.foreach(x=> {
+      val oldPath = new Path("%s/%s/%s/SPLIT=%s".format(fileStorePath, "temp", x._1, x._1))
+      val newPath = new Path("%s/%s/%s/SPLIT=%s".format(fileStorePath, "data", finalDestination, x._1))
+      fs.rename(oldPath, newPath)
+    })
+    fs.delete(new Path("%s/%s".format(fileStorePath, "temp")), true)
+    fs.create(new Path("%s/%s/%s/_SUCCESS".format(fileStorePath, "data", finalDestination))).close()
   }
 }

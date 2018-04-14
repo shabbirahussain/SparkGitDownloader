@@ -4,6 +4,7 @@ import java.util.{Date, Properties, Scanner}
 import java.sql.DriverManager
 import java.sql.Connection
 
+import org.apache.hadoop.fs.FileSystem
 import org.apache.log4j.Logger
 import org.apache.spark.SparkContext
 import org.apache.spark.sql.{SQLContext, SparkSession}
@@ -65,9 +66,12 @@ object Main extends Serializable {
 
   val sqlContext: SQLContext = spark.sqlContext
 
+  val fs: FileSystem = FileSystem.get(sc.hadoopConfiguration)
+
   val dataStore: DataStore = new LocalStore(
     prop.getProperty("ds.mysql.batch.size").toInt,
-    prop.getProperty("ds.filestore.path")
+    prop.getProperty("ds.filestore.path"),
+    fs
   )
 
   def main(args: Array[String])

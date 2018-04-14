@@ -1,6 +1,7 @@
 package org.reactorlabs.jshealth.datastores
 
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.DataFrame
 import org.reactorlabs.jshealth.models.FileHashTuple
 
 /** Stores data and metadata of a file transparently.
@@ -29,10 +30,10 @@ trait DataStore extends Serializable{
 
   /** Stores the file hash tuple history.
     *
-    * @param record is the input key value pair rdd. Here key is defined by partition and unique value.
+    * @param record is the input Dataframe of (SPLIT, TRUE_KEY, VALUE). Here key is defined by partition and a natural key.
     * @param folder is the output folder to save to.
     */
-  def storeHistory(record: RDD[((String, String), String)], folder: String): Unit
+  def storeHistory(record: DataFrame, folder: String): Unit
 
   /** Marks a repo with error.
     *
@@ -43,9 +44,18 @@ trait DataStore extends Serializable{
     */
   def markRepoError(owner: String, repo: String, branch: String, err: String): Unit
 
-  /** Loads a set of file hashes already cloned from a storage location.
-    *
-    * @return A set of file hashes.
+  /**
+    * @return a seq of hashes whos content is already downloaded.
     */
   def getExistingHashes(): Seq[String]
+
+  /**
+    * @return an unique and unified view of given split.
+    */
+  def read(split: String): DataFrame
+
+  /**
+    * Consolidates data of multiple runs into one.
+    */
+  def consolidateData(): Unit
 }

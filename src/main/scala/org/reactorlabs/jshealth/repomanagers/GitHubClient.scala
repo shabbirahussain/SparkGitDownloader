@@ -19,8 +19,8 @@ import org.reactorlabs.jshealth.models.FileHashTuple
 import org.reactorlabs.jshealth.util
 
 import scala.collection.JavaConverters._
-import java.util.concurrent.ConcurrentHashMap
 
+import org.apache.hadoop.fs.{FileSystem, Path}
 import org.eclipse.jgit.errors.MissingObjectException
 
 import scala.collection.concurrent.TrieMap
@@ -114,7 +114,7 @@ class GitHubClient(extensions: Set[String],
       .zipWithIndex.map(x=> {
           if (x._2 % 10 == 0 || x._2 == tCnt){
             val msg = "\r" + (new Date()) + "\t\t\t\t\t\t\tProcessing: %s/%s:  %.2f%% of %7d commits"
-              .format(owner, repo, x._2*100.0/tCnt, cnt)
+              .format(owner, repo, (x._2 + 1)*100.0/cnt, cnt)+ (" "*20)
             print(("\b" * msg.length) + msg)
           }
           x._1
