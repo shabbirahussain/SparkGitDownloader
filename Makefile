@@ -32,7 +32,8 @@ build:
 
 run:
 	${SPARK_BIN_PATH}spark-submit \
-	 	--master local --driver-memory 6g --executor-memory 6G \
+	 	--conf spark.worker.timeout=30000 --conf spark.storage.blockManagerHeartBeatMs=30000 \
+        --master local --driver-memory 15g --executor-memory 15G \
 	 	--jars "${FULL_RUNTIME_JARS}" \
     	--class org.reactorlabs.jshealth.Main "${JAR_NAME}" ${INPUT_COMMAND}
 

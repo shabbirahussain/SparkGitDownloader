@@ -33,7 +33,7 @@ trait DataStore extends Serializable{
     * @param record is the input Dataframe of (SPLIT, TRUE_KEY, VALUE). Here key is defined by partition and a natural key.
     * @param folder is the output folder to save to.
     */
-  def storeHistory(record: DataFrame, folder: String): Unit
+  def store(record: DataFrame, folder: String): Unit
 
   /** Marks a repo with error.
     *

@@ -67,9 +67,8 @@ object Main {
 
     val fht = links
       .repartition(crawlBatchSize / groupSize)
-      .mapPartitions(x=> {
-        fs.delete(new Path(gitPath.toURI), true); x.grouped(groupSize)
-      }, preservesPartitioning = true)
+      .mapPartitions(_.grouped(groupSize), preservesPartitioning = true)
+      .map(x=> {fs.delete(new Path(gitPath.toURI), true);x}) // Cleanup previous clones
       .map(x=> {
         val msg = "\n" + (new Date()) + "\tLoading next batch ..."
         println(msg)
@@ -91,8 +90,8 @@ object Main {
               case success @ _ => Some(success.get)
             }
           }), nThreads = numCores)) // Clone the git repo batch
-      .map(_.filter(_.isDefined).map(_.get)) // Remove unsuccessful clones
-      .map(y=> new ExecutionQueue(y.map(git=> ()=>{
+      .flatMap(_.filter(_.isDefined).map(_.get)) // Remove unsuccessful clones
+      .flatMap(git=> {
             val repo = git.getRepository.getDirectory.getParentFile
             val commits = Try(gitHub.getRepoFilesHistory(git))
             match {
@@ -104,7 +103,7 @@ object Main {
               case success@_ => success.get
             }
 
-            val res = commits
+            commits
               .map(x =>
                 ("commitMsg", """%s""".format(x.commitId), """%s,%s""".format(x.author, escapeString(x.longMsg)))) // Commit Messages
               .distinct
@@ -121,16 +120,12 @@ object Main {
                     , x.commitTime)
                   , """%s""".format(x.commitId))
               )) // FileHashTuple
-
-            if (commits.count(_=>true) >=0) fs.delete(new Path(repo.toURI), true)
-            res
-        }).toIterable, nThreads = numCores)) // Explode data into categories
-      .flatMap(_.flatten)
+        }) // Explode data into categories
       .toDF("SPLIT", "TRUE_KEY", "VALUE")
       .select($"SPLIT",
         concat($"TRUE_KEY", when($"VALUE" === "", "").otherwise(","), $"VALUE"))
 
-    dataStore.storeHistory(fht, token.toString)
+    dataStore.store(fht, token.toString)
     dataStore.markRepoCompleted(links.map(x=> (x._1, x._2, x._3)))
 
     links.unpersist(blocking = false)
@@ -140,7 +135,7 @@ object Main {
   def main(args: Array[String])
   : Unit = {
     println("Git.Main")
-
+//    dataStore.consolidateData()
     var continue = false
     var ctr = 0
     do{
