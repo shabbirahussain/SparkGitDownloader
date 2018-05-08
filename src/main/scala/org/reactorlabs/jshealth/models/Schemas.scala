@@ -17,7 +17,8 @@ object Schemas{
       StructField("AUTHOR",       StringType, nullable = false),
       StructField("LONG_MESSAGE", StringType, nullable = false)))
       , Seq("COMMIT_ID")),
-    "indexes"   -> (StructType(Array(StructField("HASH_CODE", StringType, nullable = false)))
+    "indexes"   -> (StructType(Array(
+      StructField("HASH_CODE", StringType, nullable = false)))
       , Seq("HASH_CODE")),
     "contents"  -> (StructType(Array(
       StructField("HASH_CODE", StringType, nullable = false),

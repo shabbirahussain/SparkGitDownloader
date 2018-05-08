@@ -21,4 +21,12 @@ trait RepoManager {
     * @return a cloned git repo.
     */
   def gitCloneRepo(owner: String, repo: String): Git
+
+  /** Given an git repo and objectId retrieves the contents of that object.
+    *
+    * @param rep is the git repo to fetch contents from.
+    * @param objId is the hashcode/ object id of the object to retrieve contents.
+    * @return A contents of that object.
+    */
+  def getFileContents(rep: Git, objId: String): Array[Byte]
 }

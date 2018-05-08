@@ -5,6 +5,7 @@ import java.nio.file.Paths
 import java.util.Date
 import java.util.concurrent.{Executors, TimeUnit}
 
+import com.google.common.io.Files
 import org.apache.log4j.Level
 import org.reactorlabs.jshealth.Main._
 import org.reactorlabs.jshealth.datastores.Keychain
@@ -37,19 +38,18 @@ object Main {
   private val consolFreq      = prop.getProperty("git.downloader.consolidation.frequency").toInt
   private val gitPath         = {
     var path = prop.getProperty("git.repo.path")
-    if (path.isEmpty) path = sc.hadoopConfiguration.get("hadoop.tmp.dir", "/tmp")
+    if (path == null || path.isEmpty)
+      path = sc.hadoopConfiguration.get("hadoop.tmp.dir", "/tmp") + "/git/"
     new File(path)
   }
-
-  private def getNewGitHubClient(): RepoManager = {
-    val map = TrieMap[String, Unit]()
-    dataStore.getExistingHashes().foreach(k=> map.put(k, Unit))
-    new GitHubClient(
+  private val existingHashMap = TrieMap[String, Unit]()
+  private val gitHub : RepoManager = new GitHubClient(
       extensions = extensions,
       keychain   = keychain,
-      existingHash  = map ,
       workingGitDir = gitPath.toPath.toAbsolutePath.toString)
-  }
+  private val genDataFor = prop.getProperty("ds.filestore.generate.data.for")
+    .toLowerCase.split(",").map(_.trim).toSet
+
 
   /** Crawls the files from the frontier queue and stores commit history back to database.
     *
@@ -61,9 +61,8 @@ object Main {
     val (links, token) = dataStore.checkoutReposToCrawl(crawlBatchSize)
     links.persist(StorageLevel.DISK_ONLY)
     if (links.isEmpty()) return false
-    logger.log(Level.INFO, "\tPerforming Cleanup ...")
 
-    val gitHub = getNewGitHubClient()
+    logger.log(Level.INFO, "\tPerforming Setup ...")
 
     val fht = links
       .repartition(crawlBatchSize / groupSize)
@@ -103,27 +102,39 @@ object Main {
               case success@_ => success.get
             }
 
-            commits
-              .map(x =>
-                ("commitMsg", """%s""".format(x.commitId), """%s,%s""".format(x.author, escapeString(x.longMsg)))) // Commit Messages
+            val contents = commits
+              .filter(_.fileHash != null)
+              .filter(fht => extensions.contains(Files.getFileExtension(fht.gitPath)))
+              .filter(fht => !existingHashMap.contains(fht.fileHash))
+              .map(fht => {existingHashMap.+(fht.fileHash -> Unit); fht})
+              .map(fht => Try((fht.fileHash, new String(gitHub.getFileContents(git, fht.fileHash),"UTF-8"))))
+              .filter(_.isSuccess).map(_.get)
+              .map(x => ("contents", x._1, """%s""".format(escapeString(x._2))))
+
+            val indexes = contents.map(_._2).map(x =>("indexes", x, ""))
+
+            val commitMsg = commits
+              .map(x => ("commitMsg", """%s""".format(x.commitId), """%s,%s""".format(x.author, escapeString(x.longMsg))))
               .distinct
-              .union(commits.map(x =>
-                ("indexes", x.fileHash, ""))) // Indexes
-              .union(commits.filter(_.contents.isDefined).map(x =>
-                ("contents", x.fileHash, """%s""".format(escapeString(x.contents.get))))) // Contents
-              .union(commits.map(x =>
-                ("fht"
-                  , """%s,%s,%s,%s,%d""".format(x.owner
-                    , x.repo
-                    , x.gitPath
-                    , x.fileHash
-                    , x.commitTime)
-                  , """%s""".format(x.commitId))
-              )) // FileHashTuple
-        }) // Explode data into categories
+
+            val fht = commits.map(x =>
+              ("fht"
+                , """%s,%s,%s,%s,%d""".format(x.owner
+                  , x.repo
+                  , x.gitPath
+                  , x.fileHash
+                  , x.commitTime)
+                , """%s""".format(x.commitId))
+            )
+
+            var ret: Seq[(String, String, String)] = Seq.empty
+            if(genDataFor.contains("fht"))        ret = ret.union(fht)
+            if(genDataFor.contains("contents"))   ret = ret.union(contents).union(indexes)
+            if(genDataFor.contains("commitMsg"))  ret = ret.union(commitMsg)
+            ret
+        }) // Explode data into splits
       .toDF("SPLIT", "TRUE_KEY", "VALUE")
-      .select($"SPLIT",
-        concat($"TRUE_KEY", when($"VALUE" === "", "").otherwise(","), $"VALUE"))
+      .select($"SPLIT", concat($"TRUE_KEY", lit(","), $"VALUE"))
 
     dataStore.store(fht, token.toString)
     dataStore.markRepoCompleted(links.map(x=> (x._1, x._2, x._3)))
@@ -135,7 +146,6 @@ object Main {
   def main(args: Array[String])
   : Unit = {
     println("Git.Main")
-//    dataStore.consolidateData()
     var continue = false
     var ctr = 0
     do{

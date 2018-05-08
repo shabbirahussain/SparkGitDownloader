@@ -1,4 +1,4 @@
-package org.reactorlabs.jshealth.models;
+package org.reactorlabs.jshealth.models
 
 /**
  * @param owner is the owner of the repository.
@@ -10,7 +10,6 @@ package org.reactorlabs.jshealth.models;
  * @param commitId is commit id of the file.
  * @param author is commit author.
  * @param longMsg is full commit message.
- * @param contents is full content of the file at that commit.
  * @param commitTime is time file is committed.
  *
  * @author shabbirahussain
@@ -23,7 +22,6 @@ case class FileHashTuple(owner:     String,
                          commitId:  String = null,
                          author:    String = null,
                          longMsg:   String = null,
-                         contents:  Option[String] = None,
                          error:     Option[String] = None,
                          commitTime:Long = 0){
   override def toString

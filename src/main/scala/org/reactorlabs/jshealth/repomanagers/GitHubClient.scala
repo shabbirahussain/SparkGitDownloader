@@ -28,7 +28,6 @@ import scala.util.{Failure, Try}
   *
   * @param extensions is the list of extensions to scan for.
   * @param keychain is the keychain enabling github authentication.
-  * @param existingHash is the set of hashes which are already cloned.
   * @param workingGitDir is the temporary directory to use for cloning.
   *
   * @author shabbirahussain
@@ -36,7 +35,6 @@ import scala.util.{Failure, Try}
 @SerialVersionUID(100L)
 class GitHubClient(extensions: Set[String],
                    keychain: Keychain,
-                   existingHash: TrieMap[String, Unit],
                    workingGitDir: String)
   extends RepoManager with Serializable {
   private val githubUrl = "https://github.com/"
@@ -47,8 +45,8 @@ class GitHubClient(extensions: Set[String],
   private var reset    : Long     = 0
   private var isValid  : Boolean  = false
 
-  private def getAllCommits(rep: Git): Seq[RevCommit] = {
-    Try(rep.log().call().asScala.toSeq)
+  private def getAllCommits(git: Git): Seq[RevCommit] = {
+    Try(git.log().call().asScala.toSeq)
     match {
       case _ @ Failure(e) =>
       e match{
@@ -58,10 +56,6 @@ class GitHubClient(extensions: Set[String],
       Seq.empty
       case success @ _ => success.get
     }
-  }
-
-  private def getFileContents(rep: Git, objId: String): String = {
-    new String(rep.getRepository.open(ObjectId.fromString(objId)).getBytes,"UTF-8")
   }
 
   override def gitCloneRepo(owner: String, repo: String): Git = {
@@ -84,6 +78,10 @@ class GitHubClient(extensions: Set[String],
     res
   }
 
+  override def getFileContents(git: Git, objId: String): Array[Byte] = {
+    git.getRepository.open(ObjectId.fromString(objId)).getBytes
+  }
+
   override def getRepoFilesHistory(git: Git)
   : Seq[FileHashTuple] = {
     def getDiff(oldTreeIter: AbstractTreeIterator, newTreeIter: AbstractTreeIterator)
@@ -92,9 +90,8 @@ class GitHubClient(extensions: Set[String],
     }
 
     val repository  = git.getRepository
-    val dir         = repository.getDirectory
-    val repo        = dir.getParentFile.getName
-    val owner       = dir.getParentFile.getParentFile.getName
+    val repo        = repository.getDirectory.getParentFile.getName
+    val owner       = repository.getDirectory.getParentFile.getParentFile.getName
     val reader      = repository.newObjectReader
     var oldTreeIter: AbstractTreeIterator = new EmptyTreeIterator()
     var newTreeIter: CanonicalTreeParser  = new CanonicalTreeParser()
@@ -120,22 +117,13 @@ class GitHubClient(extensions: Set[String],
           newTreeIter.reset(reader, repository.resolve(x.getTree.getName))
 
           val ret = getDiff(oldTreeIter = oldTreeIter, newTreeIter = newTreeIter)
-            .map(y=> {
-              if(y.getChangeType == DiffEntry.ChangeType.DELETE)
+            .map(y=> if(y.getChangeType == DiffEntry.ChangeType.DELETE)
                 (y.getOldPath,  null)
               else
                 (y.getNewPath, y.getNewId.name())
-            })
+            )
 //          .filter(y=> extensions.contains(Files.getFileExtension(y._1)))
-            .map(y=> {
-              val contents = if (y._2 != null &&
-                  extensions.contains(Files.getFileExtension(y._1)) &&
-                  !existingHash.contains(y._2)){
-                existingHash.+(y._2 -> Unit)  // Maintain a local map
-                Some(getFileContents(git, y._2))
-              } else None
-
-            FileHashTuple(owner = owner,
+            .map(y=> FileHashTuple(owner = owner,
                 repo      = repo,
                 branch    = x.getTree.getName,
                 gitPath   = y._1,
@@ -143,9 +131,8 @@ class GitHubClient(extensions: Set[String],
                 commitId  = x.getId.name(),
                 commitTime= x.getCommitTime,
                 longMsg   = x.getFullMessage,
-                contents  = contents,
                 author    = x.getAuthorIdent.getEmailAddress)
-            })
+            )
 
           newTreeIter.reset(reader, repository.resolve(x.getTree.getName))
           oldTreeIter = newTreeIter
