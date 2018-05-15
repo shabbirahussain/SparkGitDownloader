@@ -2,7 +2,7 @@ package org.reactorlabs.jshealth.datastores
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.DataFrame
-import org.reactorlabs.jshealth.models.FileHashTuple
+import org.reactorlabs.jshealth.models.{FileHashTuple, Schemas}
 
 /** Stores data and metadata of a file transparently.
   *
@@ -52,7 +52,7 @@ trait DataStore extends Serializable{
   /**
     * @return an unique and unified view of given split.
     */
-  def read(split: String): DataFrame
+  def read(split: Schemas.Value): DataFrame
 
   /**
     * Consolidates data of multiple runs into one.

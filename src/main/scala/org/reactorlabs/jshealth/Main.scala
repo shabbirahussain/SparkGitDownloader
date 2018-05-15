@@ -66,10 +66,12 @@ object Main extends Serializable {
 
   val sqlContext: SQLContext = spark.sqlContext
 
-  val fs: FileSystem = FileSystem.get(sc.hadoopConfiguration)
+  val hconf = sc.hadoopConfiguration
+  hconf.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+  hconf.set("fs.s3n.impl", "org.apache.hadoop.fs.s3native.NativeS3FileSystem")
+  val fs: FileSystem = FileSystem.get(hconf)
 
   val dataStore: DataStore = new LocalStore(
-    prop.getProperty("ds.mysql.batch.size").toInt,
     prop.getProperty("ds.filestore.path"),
     fs
   )

@@ -15,7 +15,7 @@ import org.reactorlabs.jshealth.util._
 import org.apache.spark.storage.StorageLevel
 import org.eclipse.jgit.api.errors.{InvalidRemoteException, TransportException}
 import org.eclipse.jgit.errors.NoRemoteRepositoryException
-import org.reactorlabs.jshealth.models.FileHashTuple
+import org.reactorlabs.jshealth.models.{FileHashTuple, Schemas}
 import org.reactorlabs.jshealth.util.escapeString
 import org.apache.spark.sql.functions._
 import org.apache.hadoop.fs.Path
@@ -29,8 +29,8 @@ import scala.util.{Failure, Random, Success, Try}
 object Main {
   import sqlContext.implicits._
 
-  private val extensions  = prop.getProperty("git.download.extensions")
-    .toLowerCase.split(",").map(_.trim).toSet
+  private val fhtExtensions  = prop.getProperty("git.download.fht.extensions").toLowerCase.split(",").map(_.trim).toSet
+  private val conExtensions  = prop.getProperty("git.download.con.extensions").toLowerCase.split(",").map(_.trim).toSet
   private val keychain        = new Keychain(prop.getProperty("git.api.keys.path"))
   private val crawlBatchSize  = prop.getProperty("git.crawl.batch.size").toInt
   private val numCores        = prop.getProperty("git.downloader.numworkers").toInt
@@ -44,12 +44,14 @@ object Main {
   }
   private val existingHashMap = TrieMap[String, Unit]()
   private val gitHub : RepoManager = new GitHubClient(
-      extensions = extensions,
       keychain   = keychain,
       workingGitDir = gitPath.toPath.toAbsolutePath.toString)
-  private val genDataFor = prop.getProperty("ds.filestore.generate.data.for")
-    .toLowerCase.split(",").map(_.trim).toSet
-
+  private val genDataFor = {
+    prop.getProperty("ds.filestore.generate.data.for")
+      .toLowerCase.split(",").map(_.trim)
+      .toSet
+      .map(Schemas.withName)
+  }
 
   /** Crawls the files from the frontier queue and stores commit history back to database.
     *
@@ -64,7 +66,7 @@ object Main {
 
     logger.log(Level.INFO, "\tPerforming Setup ...")
 
-    val fht = links
+    val rawData = links
       .repartition(crawlBatchSize / groupSize)
       .mapPartitions(_.grouped(groupSize), preservesPartitioning = true)
       .map(x=> {fs.delete(new Path(gitPath.toURI), true);x}) // Cleanup previous clones
@@ -91,55 +93,78 @@ object Main {
           }), nThreads = numCores)) // Clone the git repo batch
       .flatMap(_.filter(_.isDefined).map(_.get)) // Remove unsuccessful clones
       .flatMap(git=> {
-            val repo = git.getRepository.getDirectory.getParentFile
-            val commits = Try(gitHub.getRepoFilesHistory(git))
-            match {
-              case _@Failure(e) =>
-                // Log all errors to the database
-                logger.log(Level.ERROR, e.getMessage)
-                dataStore.markRepoError(owner = repo.getParentFile.getName, repo = repo.getName, branch = "master", err = e.getMessage)
-                Seq.empty
-              case success@_ => success.get
-            }
+          val repo = git.getRepository.getDirectory.getParentFile
+          val allCommits = Try(gitHub.getRepoFilesHistory(git))
+          match {
+            case _@Failure(e) =>
+              // Log all errors to the database
+              logger.log(Level.ERROR, e.getMessage)
+              dataStore.markRepoError(owner = repo.getParentFile.getName, repo = repo.getName, branch = "master", err = e.getMessage)
+              Seq.empty
+            case success@_ => success.get
+          }
 
-            val contents = commits
-              .filter(_.fileHash != null)
-              .filter(fht => extensions.contains(Files.getFileExtension(fht.gitPath)))
-              .filter(fht => !existingHashMap.contains(fht.fileHash))
-              .map(fht => {existingHashMap.+(fht.fileHash -> Unit); fht})
-              .map(fht => Try((fht.fileHash, new String(gitHub.getFileContents(git, fht.fileHash),"UTF-8"))))
-              .filter(_.isSuccess).map(_.get)
-              .map(x => ("contents", x._1, """%s""".format(escapeString(x._2))))
+          val commits = if (fhtExtensions.isEmpty) allCommits
+          else allCommits.filter(fht=> fhtExtensions.contains(Files.getFileExtension(fht.gitPath)))
 
-            val indexes = contents.map(_._2).map(x =>("indexes", x, ""))
+          val contents = commits
+            .filter(_.fileHash != null)
+            .filter(fht => conExtensions.contains(Files.getFileExtension(fht.gitPath)))
+            .filter(fht => !existingHashMap.contains(fht.fileHash))
+            .map(fht => {existingHashMap.+(fht.fileHash -> Unit); fht})
+            .map(fht => Try((fht.fileHash, new String(gitHub.getFileContents(git, fht.fileHash),"UTF-8"))))
+            .filter(_.isSuccess).map(_.get)
+            .map(x => (Schemas.CONTENTS, (x._1, escapeString(x._2))))
 
-            val commitMsg = commits
-              .map(x => ("commitMsg", """%s""".format(x.commitId), """%s,%s""".format(x.author, escapeString(x.longMsg))))
-              .distinct
+          val commitMsg = commits
+            .map(x => (Schemas.COMMIT_MESSAGES, (x.commitId, x.author, escapeString(x.longMsg))))
+            .distinct
 
-            val fht = commits.map(x =>
-              ("fht"
-                , """%s,%s,%s,%s,%d""".format(x.owner
-                  , x.repo
-                  , x.gitPath
-                  , x.fileHash
-                  , x.commitTime)
-                , """%s""".format(x.commitId))
-            )
+          val fht = commits
+            .map(x => (Schemas.FILE_METADATA, (x.owner, x.repo, x.gitPath, x.fileHash, x.commitTime, x.commitId)))
 
-            var ret: Seq[(String, String, String)] = Seq.empty
-            if(genDataFor.contains("fht"))        ret = ret.union(fht)
-            if(genDataFor.contains("contents"))   ret = ret.union(contents).union(indexes)
-            if(genDataFor.contains("commitMsg"))  ret = ret.union(commitMsg)
-            ret
+          var ret: Seq[(Schemas.Value, Any)] = Seq.empty
+          if(genDataFor.contains(Schemas.FILE_METADATA))   ret = ret.union(fht)
+          if(genDataFor.contains(Schemas.CONTENTS))        ret = ret.union(contents)
+          if(genDataFor.contains(Schemas.COMMIT_MESSAGES)) ret = ret.union(commitMsg)
+          ret
         }) // Explode data into splits
-      .toDF("SPLIT", "TRUE_KEY", "VALUE")
-      .select($"SPLIT", concat($"TRUE_KEY", lit(","), $"VALUE"))
+      .persist()
+    rawData.checkpoint()
 
-    dataStore.store(fht, token.toString)
+    if(genDataFor.contains(Schemas.FILE_METADATA)){
+      val data = rawData
+        .filter(_._1 == Schemas.FILE_METADATA)
+        .map(_._2.asInstanceOf[(String, String, String, String, Long, String)])
+        .toDF(Schemas.asMap(Schemas.FILE_METADATA)._3:_*)
+      dataStore.store(data, folder = "%s/%s".format(token.toString, Schemas.FILE_METADATA))
+    }
+    if(genDataFor.contains(Schemas.COMMIT_MESSAGES)){
+      val data = rawData
+        .filter(_._1 == Schemas.COMMIT_MESSAGES)
+        .map(_._2.asInstanceOf[(String, String, String)])
+        .toDF(Schemas.asMap(Schemas.COMMIT_MESSAGES)._3:_*)
+      dataStore.store(data, folder = "%s/%s".format(token.toString, Schemas.COMMIT_MESSAGES))
+    }
+    if(genDataFor.contains(Schemas.CONTENTS)){
+      val data = rawData
+        .filter(_._1 == Schemas.CONTENTS)
+        .map(_._2.asInstanceOf[(String, String)])
+        .toDF(Schemas.asMap(Schemas.CONTENTS)._3:_*)
+        .dropDuplicates(Schemas.asMap(Schemas.CONTENTS)._2)
+      dataStore.store(data, folder = "%s/%s".format(token.toString, Schemas.CONTENTS))
+
+      val data2 = rawData
+        .filter(_._1 == Schemas.CONTENTS)
+        .map(_._2.asInstanceOf[(String, String)]._1)
+        .toDF(Schemas.asMap(Schemas.INDEX)._3:_*)
+        .dropDuplicates(Schemas.asMap(Schemas.INDEX)._2)
+      dataStore.store(data2, folder = "%s/%s".format(token.toString, Schemas.INDEX))
+    }
+
     dataStore.markRepoCompleted(links.map(x=> (x._1, x._2, x._3)))
-
     links.unpersist(blocking = false)
+    rawData.unpersist(blocking = true)
     true
   }
 

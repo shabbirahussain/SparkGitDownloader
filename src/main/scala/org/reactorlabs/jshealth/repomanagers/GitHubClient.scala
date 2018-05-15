@@ -26,18 +26,15 @@ import scala.util.{Failure, Try}
 
 /** Class responsible for downloading files from github.com. It serves as a wrapper over Git API.
   *
-  * @param extensions is the list of extensions to scan for.
   * @param keychain is the keychain enabling github authentication.
   * @param workingGitDir is the temporary directory to use for cloning.
   *
   * @author shabbirahussain
   */
 @SerialVersionUID(100L)
-class GitHubClient(extensions: Set[String],
-                   keychain: Keychain,
-                   workingGitDir: String)
+class GitHubClient(keychain: Keychain, workingGitDir: String)
   extends RepoManager with Serializable {
-  private val githubUrl = "https://github.com/"
+  private val githubUrl = "https://github.com"
 //  private val decoder = Codec.UTF8.decoder.onMalformedInput(CodingErrorAction.IGNORE)
 
   private var apiKey   : String   = _
@@ -71,7 +68,7 @@ class GitHubClient(extensions: Set[String],
         .setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", apiKey ))
         .setCloneAllBranches(true)
         //.setProgressMonitor()
-        .setURI(githubUrl + owner + "/" + repo)
+        .setURI("%s/%s/%s".format(githubUrl, owner, repo))
         .call()
 
     isValid = true
@@ -122,7 +119,6 @@ class GitHubClient(extensions: Set[String],
               else
                 (y.getNewPath, y.getNewId.name())
             )
-//          .filter(y=> extensions.contains(Files.getFileExtension(y._1)))
             .map(y=> FileHashTuple(owner = owner,
                 repo      = repo,
                 branch    = x.getTree.getName,

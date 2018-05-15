@@ -14,9 +14,10 @@ import scala.util.{Failure, Try}
 /**
   * @author shabbirahussain
   */
-class LocalStore(batchSize: Int, fileStorePath: String, fs: FileSystem) extends DataStore {
+class LocalStore(fileStorePath: String, fs: FileSystem) extends DataStore {
   private val tempPath = "_temporary"
   private val dataPath = "data"
+  private val batchSize= 1000
 
   import sqlContext.implicits._
 
@@ -67,22 +68,13 @@ class LocalStore(batchSize: Int, fileStorePath: String, fs: FileSystem) extends 
 
   private def store(records: DataFrame,
                     folder1: String,
-                    folder2: String,
-                    quote: String,
-                    delimiter: String,
-                    coalesce: Boolean = false,
-                    compress: Boolean = false)
+                    folder2: String)
   : Unit = {
-    val writer = (if (coalesce) records.coalesce(1) else records)
-        .write
-        .partitionBy("SPLIT")
-
-    (if (compress) writer.option("codec", classOf[BZip2Codec].getName) else writer)
-      .option("quote", quote)
-      .option("delimiter", delimiter)
-      .option("header", "true")
+    records
+      .write
+      .option("codec", classOf[BZip2Codec].getName)
       .mode(SaveMode.Overwrite)
-      .save("%s/%s/%s".format(fileStorePath, folder1,folder2))
+      .save("%s/%s/%s".format(fileStorePath, folder1, folder2))
   }
 
   // ================ API Methods ===================
@@ -162,37 +154,31 @@ class LocalStore(batchSize: Int, fileStorePath: String, fs: FileSystem) extends 
 
   override def getExistingHashes()
   : Seq[String] = {
-    Try(read("indexes").map(_.getAs[String](0)).collect)
+    Try(read(Schemas.INDEX).map(_.getAs[String](0)).collect)
     match {
       case _ @Failure(e) => Seq.empty
       case success @ _   => success.get
     }
   }
 
-  override def read(split: String): DataFrame = {
+  override def read(split: Schemas.Value): DataFrame = {
     val meta = Schemas.asMap(key = split)
     sqlContext.read
       .schema(meta._1)
-      .option("quote", "\"")
-      .option("header", "true")
-      .csv(fileStorePath + "/%s/*/SPLIT=%s/".format(dataPath, split))
+      .load(fileStorePath + "/%s/*/%s/".format(dataPath, split))
       .dropDuplicates(meta._2)
   }
+
+
   override def store(records: DataFrame, folder: String)
-  : Unit = store(records, dataPath, folder, "\u0000", "\t", compress = false)
+  : Unit = store(records, dataPath, folder)
 
   override def consolidateData(): Unit = {
     val finalDestination = System.currentTimeMillis().toString
     fs.delete(new Path("%s/%s".format(fileStorePath, tempPath)), true)
 
     Schemas.asMap.foreach(x=> {
-      store(read(x._1).withColumn("SPLIT", lit(x._1))
-        , folder1 = tempPath
-        , folder2 = x._1
-        , quote = "\""
-        , delimiter = ","
-        , coalesce  = true
-        , compress  = true)
+      store(read(x._1), folder = finalDestination)
     })
     fs.delete(new Path("%s/%s".format(fileStorePath, dataPath)), true)
     fs.mkdirs(new Path("%s/%s".format(fileStorePath, dataPath)))
