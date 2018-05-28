@@ -25,21 +25,21 @@ build_all: clean install_deps build
 
 build:
 	mkdir -p "target/artifacts"
-	mkdir -p "target/classes/main/resources/"
-	${SCALA_BIN_PATH}scalac -cp "./${LIB_PATH}/*" \
+#	mkdir -p "target/classes/main/resources/"
+	${SCALA_BIN_PATH}scalac -feature -cp "./${LIB_PATH}/*" \
 		-d target/classes \
 		src/main/scala/org/reactorlabs/jshealth/**/*.scala \
 		src/main/scala/org/reactorlabs/jshealth/*.scala
 	cp -r src/main/resources/* target/classes
-	cp src/main/shell/GHTorrent.sh target/classes
+	cp -r src/main/shell target/classes/shell
+	cp -r src/main/mysql target/classes/mysql
 	jar cfm ${JAR_NAME} \
 		src/main/scala/META-INF/MANIFEST.MF \
 		-C target/classes/ .
 
 run:
 	${SPARK_BIN_PATH}spark-submit \
-	 	--conf spark.worker.timeout=30000 --conf spark.storage.blockManagerHeartBeatMs=30000 \
-        --master local --driver-memory 15g --executor-memory 15G \
+        --driver-memory 15g --executor-memory 15G \
 	 	--jars "${FULL_RUNTIME_JARS}" \
     	--class org.reactorlabs.jshealth.Main "${JAR_NAME}" ${INPUT_COMMAND}
 
@@ -53,6 +53,8 @@ setup:
 	ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
 	brew install git-lfs
 	brew install maven
+	brew install apache-spark
+	brew install scala@2.11
 	brew install mysql
 	brew tap homebrew/services
 	brew services start mysql
@@ -73,11 +75,13 @@ aws_deploy: build_all
 	rm -rf ${AWS_DIR}
 	mkdir -p ${AWS_DIR}/${LIB_PATH}
 	cp ${LIB_PATH}/{${RUNTIME_JARS}} ${AWS_DIR}/${LIB_PATH}
+	cp ${JAR_NAME} ${AWS_DIR}/${JAR_NAME}
 	cp Makefile ${AWS_DIR}
 	scp -r -i ${AWS_PEM_PATH} ${AWS_DIR} ${AWS_MACHINE}:/mnt/project
 
 aws_ssh:
-	ssh -i ${AWS_PEM_PATH} ${AWS_MACHINE}
-	cd /mnt/project
+	ssh -i ${AWS_PEM_PATH} ${AWS_MACHINE} << EOF
+		cd /mnt/project
+	EOF
 
 aws: aws_deploy aws_ssh

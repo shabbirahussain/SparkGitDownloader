@@ -1,32 +1,56 @@
 package org.reactorlabs.jshealth.ghtorrent
 
 import java.io.File
-import java.nio.file.{Files, Paths}
+import java.nio.file.{Files, Path, Paths}
 import java.nio.file.attribute.PosixFilePermission
 
+import akka.stream.SourceShape
 import org.apache.commons.io.FileUtils
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.log4j.Level
-import org.reactorlabs.jshealth.Main.{logger, prop, sc, spark, dataStore}
+import org.reactorlabs.jshealth.Main.{ds, logger, prop, sc, spark}
 import org.reactorlabs.jshealth.models.Languages
 
+import scala.io.Source
 import sys.process._
-
+import scala.language.postfixOps
 /**
   * @author shabbirahussain
   */
 object Main {
-  private val ghtTarName        = prop.getProperty("ghtorrent.archive.name")
-  private val ghtRepoPath       = prop.getProperty("ghtorrent.repo.path")
   private val ghtDownloaderPath = prop.getProperty("ghtorrent.downloader.path")
+  private val ghtTarName        = prop.getProperty("ghtorrent.archive.name")
   private val ghtProjFilters    = prop.getProperty("ghtorrent.project.filters").split(",").map(_.trim).toSet
 
+  private val ghtRepoPath      = sc.hadoopConfiguration.get("hadoop.tmp.dir", "/tmp") + "/ght"
   private val ghtProjectsName  = ghtTarName + "/projects.csv"
   private val ghtProjectsFile  = ghtRepoPath + "/" + ghtProjectsName
   private val parser = sc.broadcast(new GHTParser(Set(Languages.JavaScript, Languages.TypeScript, Languages.CoffeeScript)))
 
   import spark.implicits._
+
+  /** As resource is protected files and aren't executable, this function creates a temporary version of that file.
+    *
+    * @param resourceName is the resource to clone.
+    * @return An absolute path of the clones resource.
+    */
+  private def cloneResource(resourceName: String)
+  : String = {
+    val extension = scala.reflect.io.File(scala.reflect.io.Path(resourceName)).extension
+    val stream  = this.getClass.getClassLoader.getResourceAsStream(resourceName)
+    val f = File.createTempFile(resourceName, extension)
+    f.deleteOnExit()
+    FileUtils.copyInputStreamToFile(stream, f)
+    if (stream != null) stream.close()
+
+    // Make it executable
+    val perms = new java.util.HashSet[PosixFilePermission]()
+    perms.add(PosixFilePermission.OWNER_EXECUTE)
+    perms.add(PosixFilePermission.OWNER_READ)
+    Files.setPosixFilePermissions(f.toPath, perms)
+    f.getAbsolutePath
+  }
 
   /**
     * Downloads projects.csv from GHTorrent.
@@ -34,19 +58,7 @@ object Main {
   private def downloadProjectsList()
   : Unit = {
     // Create a temp sh script
-    val stream  = this.getClass.getClassLoader.getResourceAsStream(ghtDownloaderPath)
-    val ghtFile = File.createTempFile(ghtDownloaderPath, ".sh")
-    ghtFile.deleteOnExit()
-    FileUtils.copyInputStreamToFile(stream, ghtFile)
-    if (stream != null) stream.close()
-
-    // Make it executable
-    val perms = new java.util.HashSet[PosixFilePermission]()
-    perms.add(PosixFilePermission.OWNER_EXECUTE)
-    perms.add(PosixFilePermission.OWNER_READ)
-    Files.setPosixFilePermissions(ghtFile.toPath, perms)
-
-    val cmd = ghtFile.getAbsolutePath + " " +
+    val cmd = cloneResource(ghtDownloaderPath) + " " +
       ghtTarName + ".tar.gz " +
       ghtRepoPath + " " +
       ghtProjectsName
@@ -61,10 +73,9 @@ object Main {
     * @param parser is the GHTParser to be used.
     * @return RDD of projId.
     */
-  private def loadProjectList(csvPath: String, parser:  Broadcast[GHTParser])
+  private def getProjectList(csvPath: String, parser: Broadcast[GHTParser])
   : RDD[String] = {
-    var res = sc.textFile(csvPath)
-      .map(parser.value.parse)
+    var res = sc.textFile(csvPath).map(parser.value.parse)
 
     res = ProjectFilters.filterCorrupt(res)
     if (ghtProjFilters.contains("filterDeleted"))  res = ProjectFilters.filterDeleted(res)
@@ -80,11 +91,12 @@ object Main {
   def main(args: Array[String])
   : Unit = {
     logger.log(Level.INFO, "Starting GHTorrent Process...")
+    logger.log(Level.INFO, "GHT archive folder = %s".format(ghtRepoPath))
 
     if (!Paths.get(ghtProjectsFile).toFile.exists()){
       logger.log(Level.INFO, "No project.csv found. Downloading from GHTorrent...")
       downloadProjectsList()
     }
-    dataStore.loadProjectsQueue(loadProjectList(ghtProjectsFile, parser))
+    ds.storeProjectsQueue(getProjectList(ghtProjectsFile, parser))
   }
 }

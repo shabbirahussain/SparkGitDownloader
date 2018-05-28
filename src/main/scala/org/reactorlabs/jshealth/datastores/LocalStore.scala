@@ -1,5 +1,7 @@
 package org.reactorlabs.jshealth.datastores
 
+import java.sql.{Connection, DriverManager}
+
 import org.apache.spark.rdd.RDD
 import org.reactorlabs.jshealth.Main._
 import org.reactorlabs.jshealth.models.Schemas
@@ -7,19 +9,32 @@ import org.apache.commons.lang.StringEscapeUtils.escapeSql
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.hadoop.io.compress._
 import org.apache.spark.sql.{DataFrame, SaveMode}
-import org.apache.spark.sql.functions._
-
+import scala.io.Source
 import scala.util.{Failure, Try}
 
 /**
   * @author shabbirahussain
   */
-class LocalStore(fileStorePath: String, fs: FileSystem) extends DataStore {
+class LocalStore extends DataStore {
   private val tempPath = "_temporary"
   private val dataPath = "data"
   private val batchSize= 1000
+  getNewDBConnection.close()
 
   import sqlContext.implicits._
+
+  private def getNewDBConnection: Connection = {
+    val url      = dbConnOptions.value("url")
+    val driver   = dbConnOptions.value("driver")
+    val schema   = dbConnOptions.value("schema")
+    val username = dbConnOptions.value("username")
+    val password = dbConnOptions.value("password")
+
+    Class.forName(driver)
+    val connection: Connection = DriverManager.getConnection(url, username, password)
+    connection.setSchema(schema)
+    connection
+  }
 
   /** Executes batch of sql statements.
     *
@@ -30,19 +45,7 @@ class LocalStore(fileStorePath: String, fs: FileSystem) extends DataStore {
     //sqls.foreach(println)
     sqls
       .mapPartitions(_.grouped(batchSize))
-      .foreach(batch => {
-        val connection = getNewDBConnection
-        val statement  = connection.createStatement()
-        connection.setAutoCommit(autoCommit)
-
-        batch
-          .filter(_ != null)
-          .foreach(sql => statement.addBatch(sql))
-        statement.executeBatch()
-
-        if (!autoCommit) connection.commit()
-        connection.close()
-      })
+      .foreach(batch => execInBatch(batch, autoCommit))
   }
   /** Executes batch of sql statements.
     *
@@ -66,42 +69,44 @@ class LocalStore(fileStorePath: String, fs: FileSystem) extends DataStore {
       })
   }
 
-  private def store(records: DataFrame,
-                    folder1: String,
-                    folder2: String)
+  /**
+    * Sets up the database schema.
+    */
+  private def setupDatabase()
   : Unit = {
-    records
-      .write
-      .option("codec", classOf[BZip2Codec].getName)
-      .mode(SaveMode.Overwrite)
-      .save("%s/%s/%s".format(fileStorePath, folder1, folder2))
+    val sql = Source
+      .fromInputStream(this.getClass.getClassLoader.getResourceAsStream(mySqlSetupPath))
+      .getLines()
+      .mkString("\n")
+    execInBatch(Seq(sql), autoCommit = true)
   }
-
   // ================ API Methods ===================
 
-  override def markRepoCompleted(repo: RDD[(String, String, String)])
+  override def markRepoCompleted(repo: RDD[(String, String, String)], token: Long)
   : Unit = {
     execInBatch(repo
       .map(row =>
         """
             |UPDATE REPOS_QUEUE
-            |   SET COMPLETED   = TRUE
+            |   SET COMPLETED   = TRUE,
+            |       CHECKOUT_ID = %d
             |WHERE REPO_OWNER = '%s'
             |  AND REPOSITORY = '%s'
             |  AND BRANCH     = '%s'
-        """.stripMargin.format(escapeSql(row._1), escapeSql(row._2), row._3)
+        """.stripMargin.format(token, escapeSql(row._1), escapeSql(row._2), row._3)
       ), autoCommit = true)
   }
-  override def markRepoError(owner: String, repo: String, branch: String, err: String)
+  override def markRepoError(owner: String, repo: String, branch: String, err: String, token: Long)
   : Unit = {
     execInBatch(Seq(
         """
           |UPDATE REPOS_QUEUE
-          |   SET RESULT      = '%s'
+          |   SET RESULT      = '%s',
+          |       CHECKOUT_ID = %d
           |WHERE REPO_OWNER = '%s'
           |  AND REPOSITORY = '%s'
           |  AND BRANCH     = '%s'
-        """.stripMargin.format(escapeSql(err), escapeSql(owner), escapeSql(repo), branch)
+        """.stripMargin.format(escapeSql(err), token, escapeSql(owner), escapeSql(repo), branch)
       ), autoCommit = true)
   }
   override def checkoutReposToCrawl(limit: Int = 1000)
@@ -109,7 +114,7 @@ class LocalStore(fileStorePath: String, fs: FileSystem) extends DataStore {
     val rdd = sqlContext
       .read
       .format("jdbc")
-      .options(dbConnOptions)
+      .options(dbConnOptions.value)
       .option("dbtable", "REPOS_QUEUE")
       .load()
       .select($"REPO_OWNER", $"REPOSITORY", $"BRANCH")
@@ -122,25 +127,22 @@ class LocalStore(fileStorePath: String, fs: FileSystem) extends DataStore {
     val token = System.currentTimeMillis()
 
     // Set checkout timestamp
-    execInBatch(
-      rdd.map(row =>{
-            """
-              |UPDATE REPOS_QUEUE
-              |   SET CHECKOUT_ID = %d
-              |WHERE REPO_OWNER   = '%s'
-              |  AND REPOSITORY   = '%s'
-              |  AND BRANCH       = '%s';
-            """.stripMargin.format(token, escapeSql(row._1), escapeSql(row._2), row._3)
-        }), batchSize = limit, autoCommit = false
-    )
+//    execInBatch(
+//      rdd.map(row =>{
+//            """
+//              |UPDATE REPOS_QUEUE
+//              |   SET CHECKOUT_ID = %d
+//              |WHERE REPO_OWNER   = '%s'
+//              |  AND REPOSITORY   = '%s'
+//              |  AND BRANCH       = '%s';
+//            """.stripMargin.format(token, escapeSql(row._1), escapeSql(row._2), row._3)
+//        }), batchSize = limit, autoCommit = false
+//    )
     (rdd, token)
   }
-  override def loadProjectsQueue(projects: RDD[String], flushExisting: Boolean)
+  override def storeProjectsQueue(projects: RDD[String])
   : Unit = {
-    if (flushExisting) { // Truncate table
-      val sql = "TRUNCATE TABLE REPOS_QUEUE;"
-      execInBatch(Seq(sql), autoCommit = true)
-    }
+    setupDatabase() // Drop and create new queue.
 
     execInBatch(projects
       .map(row => {
@@ -156,7 +158,7 @@ class LocalStore(fileStorePath: String, fs: FileSystem) extends DataStore {
   : Seq[String] = {
     Try(read(Schemas.INDEX).map(_.getAs[String](0)).collect)
     match {
-      case _ @Failure(e) => Seq.empty
+      case _ @Failure(_) => Seq.empty
       case success @ _   => success.get
     }
   }
@@ -169,22 +171,27 @@ class LocalStore(fileStorePath: String, fs: FileSystem) extends DataStore {
       .dropDuplicates(meta._2)
   }
 
+  override def storeRecords(records: DataFrame, folder: String)
+  : Unit = {
+    records
+      .write
+      .option("codec", classOf[BZip2Codec].getName)
+      .mode(SaveMode.Overwrite)
+      .save("%s/%s/%s".format(fileStorePath, dataPath, folder))
+  }
 
-  override def store(records: DataFrame, folder: String)
-  : Unit = store(records, dataPath, folder)
-
-  override def consolidateData(): Unit = {
+  override def consolidateData(fileTypes: Set[Schemas.Value]): Unit = {
     val finalDestination = System.currentTimeMillis().toString
     fs.delete(new Path("%s/%s".format(fileStorePath, tempPath)), true)
 
-    Schemas.asMap.foreach(x=> {
-      store(read(x._1), folder = finalDestination)
+    fileTypes.foreach(x=> {
+      storeRecords(read(x), folder = finalDestination)
     })
     fs.delete(new Path("%s/%s".format(fileStorePath, dataPath)), true)
     fs.mkdirs(new Path("%s/%s".format(fileStorePath, dataPath)))
-    Schemas.asMap.foreach(x=> {
-      val oldPath = new Path("%s/%s/%s/SPLIT=%s".format(fileStorePath, tempPath, x._1, x._1))
-      val newPath = new Path("%s/%s/%s/SPLIT=%s".format(fileStorePath, dataPath, finalDestination, x._1))
+    fileTypes.foreach(x=> {
+      val oldPath = new Path("%s/%s/%s/%s".format(fileStorePath, tempPath, x, x))
+      val newPath = new Path("%s/%s/%s/%s".format(fileStorePath, dataPath, finalDestination, x))
       fs.rename(oldPath, newPath)
     })
     fs.delete(new Path("%s/%s".format(fileStorePath, tempPath)), true)
