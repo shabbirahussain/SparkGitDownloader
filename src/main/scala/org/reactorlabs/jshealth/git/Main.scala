@@ -20,7 +20,6 @@ import org.apache.spark.rdd.RDD
 import org.eclipse.jgit.api.Git
 
 import scala.collection.JavaConversions._
-import scala.collection.concurrent.TrieMap
 import scala.util.{Failure, Random, Success, Try}
 
 /**
@@ -29,7 +28,7 @@ import scala.util.{Failure, Random, Success, Try}
 object Main {
   import sqlContext.implicits._
 
-  private val metaExtns    = prop.getProperty("git.download.metadata.extensions").toLowerCase.split(",").map(_.trim).toSet
+  private val metaExtns       = prop.getProperty("git.download.metadata.extensions").toLowerCase.split(",").map(_.trim).toSet
   private val contentsExtn    = prop.getProperty("git.download.contents.extensions").toLowerCase.split(",").map(_.trim).toSet
   private val keychain        = new Keychain(prop.getProperty("git.api.keys.path"))
   private val crawlBatchSize  = prop.getProperty("git.crawl.batch.size").toInt
@@ -39,7 +38,6 @@ object Main {
     .toUpperCase.split(",").map(_.trim)
     .toSet
     .map(Schemas.withName)
-  private val downloaded = TrieMap[String, Unit]()
   private val gitPath    = {
     val hadoopDir = sc.hadoopConfiguration.get("hadoop.tmp.dir", "/tmp")
     new File( "%s/repos/%d".format(hadoopDir, System.currentTimeMillis()))
@@ -121,7 +119,6 @@ object Main {
     }
   }
 
-
   /** Crawls the files from the frontier queue and stores commit history back to database.
     *
     * @return status if current sprint had any files to work on.
@@ -160,7 +157,6 @@ object Main {
     links.unpersist(blocking = false)
     true
   }
-
 
   /** Crawls the files from the frontier queue and stores commit history back to database.
     *
@@ -260,18 +256,17 @@ object Main {
 
   def main(args: Array[String])
   : Unit = {
-    println("Git.Main")
-    println("Cloning repos in [%s]".format(gitPath.toPath.toAbsolutePath))
-    var continue = false
-    var ctr: Long = 0
-    do{
-      continue = crawlFileHistory()
-      ctr += 1
-      if (ctr % consolFreq == 0){
-        val msg = "\tConsolidating ..."
-        logger.log(Level.INFO, msg)
-        ds.consolidateData(genDataFor)
-      }
-    } while(continue)
+    logger.log(Level.INFO, "Git.Main")
+    logger.log(Level.INFO, "Cloning repos in [%s]".format(gitPath.toPath.toAbsolutePath))
+//    var continue = false
+//    var ctr: Long = 0
+//    do{
+//      continue = crawlFileHistory()
+//      ctr += 1
+//      if (ctr % consolFreq == 0){
+//        logger.log(Level.INFO, "\tConsolidating ...")
+//        ds.consolidateData(genDataFor)
+//      }
+//    } while(continue)
   }
 }

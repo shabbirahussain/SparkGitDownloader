@@ -11,11 +11,14 @@ AWS_PEM_PATH=~/ssh.pem
 # Do not edit! Local config variables.
 # ------------------------------------
 JAR_NAME=target/artifacts/task.jar
-LIB_PATH=target/dependency
-AWS_DIR=target/aws
+LIB_PATH=target/dependency/
+AWS_DIR=target/aws/
+CLASSES_PATH=target/classes/
+RESOURCES_PATH=${CLASSES_PATH}resources/
 
+PWD=`pwd`/
 COMMA=,
-FULL_RUNTIME_JARS=${LIB_PATH}/$(subst ${COMMA},${COMMA}${LIB_PATH}/,${RUNTIME_JARS})
+FULL_RUNTIME_JARS=${LIB_PATH}$(subst ${COMMA},${COMMA}${LIB_PATH},${RUNTIME_JARS})
 
 all: setup build_all run
 
@@ -25,21 +28,22 @@ build_all: clean install_deps build
 
 build:
 	mkdir -p "target/artifacts"
-#	mkdir -p "target/classes/main/resources/"
-	${SCALA_BIN_PATH}scalac -feature -cp "./${LIB_PATH}/*" \
+	mkdir -p "${RESOURCES_PATH}scripts"
+	cp -r src/main/resources/* ${RESOURCES_PATH}
+	cp -r src/main/shell ${RESOURCES_PATH}scripts/shell
+	cp -r src/main/mysql ${RESOURCES_PATH}scripts/mysql
+	${SCALA_BIN_PATH}scalac -feature -cp "./${LIB_PATH}*" \
 		-d target/classes \
 		src/main/scala/org/reactorlabs/jshealth/**/*.scala \
 		src/main/scala/org/reactorlabs/jshealth/*.scala
-	cp -r src/main/resources/* target/classes
-	cp -r src/main/shell target/classes/shell
-	cp -r src/main/mysql target/classes/mysql
 	jar cfm ${JAR_NAME} \
 		src/main/scala/META-INF/MANIFEST.MF \
 		-C target/classes/ .
 
 run:
 	${SPARK_BIN_PATH}spark-submit \
-        --driver-memory 15g --executor-memory 15G \
+		--conf "spark.driver.extraJavaOptions=-Dlog4j.configuration='file:${PWD}${RESOURCES_PATH}conf/log4j.properties'" \
+		--driver-memory 15g --executor-memory 15G \
 	 	--jars "${FULL_RUNTIME_JARS}" \
     	--class org.reactorlabs.jshealth.Main "${JAR_NAME}" ${INPUT_COMMAND}
 

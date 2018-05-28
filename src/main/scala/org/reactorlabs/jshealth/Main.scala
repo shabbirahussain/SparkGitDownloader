@@ -1,5 +1,6 @@
 package org.reactorlabs.jshealth
 
+import java.net.URLClassLoader
 import java.util.{Date, Properties}
 
 import org.apache.hadoop.fs.FileSystem
@@ -15,12 +16,12 @@ import scala.io.Source
   * @author shabbirahussain
   */
 object Main extends Serializable {
-  val logger:Logger = Logger.getLogger("project.default.logger")
+  val logger:Logger = Logger.getLogger("project.defaultLogger")
 
   val prop: Properties = new Properties()
   try {
     val loader = this.getClass.getClassLoader
-    val stream = loader.getResourceAsStream("config-defaults.properties")
+    val stream = loader.getResourceAsStream("resources/conf/config-defaults.properties")
     prop.load(stream)
     stream.close()
 
@@ -32,10 +33,10 @@ object Main extends Serializable {
   val spark: SparkSession = SparkSession
     .builder()
     .appName("ReactorLabs Git Miner")
+    .master("local")
     .getOrCreate()
 
   val sc: SparkContext = spark.sparkContext
-  sc.setLogLevel("WARN")
   sc.setCheckpointDir("target/temp/spark/")
 
   val sqlContext: SQLContext = spark.sqlContext
@@ -55,7 +56,7 @@ object Main extends Serializable {
     source.close()
 
     sc.broadcast(
-      Map("driver"-> driver,
+      Map("driver"  -> driver,
         "url"       -> url,
         "username"  -> username,
         "user"      -> username,
