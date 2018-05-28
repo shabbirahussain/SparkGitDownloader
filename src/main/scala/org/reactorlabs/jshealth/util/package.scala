@@ -13,7 +13,8 @@ import scala.util.Try
   * @author shabbirahussain
   */
 package object util {
-  class ExecutionQueue[T](solvers: Iterable[() => T], nThreads: Int = 1) extends Iterator[T]{
+  case class ExecutionQueue[T](solvers: Iterable[() => T], nThreads: Int = 1)
+    extends Iterator[T] {
     private case class Result(f: Future[Result], r: T)
     private val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(nThreads))
     private var futures: Set[Future[Result]] = solvers.map(s=> {

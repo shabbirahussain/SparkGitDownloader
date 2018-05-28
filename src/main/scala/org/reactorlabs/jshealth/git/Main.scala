@@ -33,6 +33,7 @@ object Main {
   private val keychain        = new Keychain(prop.getProperty("git.api.keys.path"))
   private val crawlBatchSize  = prop.getProperty("git.crawl.batch.size").toInt
   private val groupSize       = prop.getProperty("git.downloader.group.size").toInt
+  private val nWorkers          = prop.getProperty("git.downloader.numworkers").toInt
   private val consolFreq      = prop.getProperty("git.downloader.consolidation.frequency").toInt
   private val genDataFor      = prop.getProperty("git.generate.data.for")
     .toUpperCase.split(",").map(_.trim)
@@ -144,12 +145,13 @@ object Main {
       logger.log(Level.INFO, msg)
       true
     })  // Progress monitor map stage
-      .flatMap(_
-        .flatMap(x=> tryCloneRepo(x._1, x._2, x._3, token)) // Clone the git repo batch
-        .flatMap(git=> tryGetRepoFilesHistory(git, token)
-          .filter(fht=> metaExtns.isEmpty || metaExtns.contains(scala.reflect.io.File(fht.gitPath).extension))
-          .map(x=> (x.owner, x.repo, x.gitPath, x.fileHash, x.commitTime, x.commitId))
-        )) // Gather requested data
+      .flatMap(y=> ExecutionQueue(y.map(x=> ()=> {
+        tryCloneRepo(x._1, x._2, x._3, token) // Clone the git repo batch
+          .flatMap(git=> tryGetRepoFilesHistory(git, token)
+            .filter(fht=> metaExtns.isEmpty || metaExtns.contains(scala.reflect.io.File(fht.gitPath).extension))
+            .map(x=> (x.owner, x.repo, x.gitPath, x.fileHash, x.commitTime, x.commitId))
+          ) // Gather requested data
+      }), nWorkers).flatten)
       .toDF(Schemas.asMap(Schemas.FILE_METADATA)._3:_*)
     ds.storeRecords(data, folder = "%s/%s".format(token.toString, Schemas.FILE_METADATA))
 
@@ -257,16 +259,17 @@ object Main {
   def main(args: Array[String])
   : Unit = {
     logger.log(Level.INFO, "Git.Main")
-    logger.log(Level.INFO, "Cloning repos in [%s]".format(gitPath.toPath.toAbsolutePath))
-//    var continue = false
-//    var ctr: Long = 0
-//    do{
-//      continue = crawlFileHistory()
-//      ctr += 1
-//      if (ctr % consolFreq == 0){
-//        logger.log(Level.INFO, "\tConsolidating ...")
-//        ds.consolidateData(genDataFor)
-//      }
-//    } while(continue)
+    logger.log(Level.DEBUG, "Cloning repos in [%s]".format(gitPath.toPath.toAbsolutePath))
+
+    var continue = false
+    var ctr: Long = 0
+    do{
+      continue = crawlFileHistory()
+      ctr += 1
+      if (ctr % consolFreq == 0){
+        logger.log(Level.INFO, "\tConsolidating ...")
+        ds.consolidateData(genDataFor)
+      }
+    } while(continue)
   }
 }
