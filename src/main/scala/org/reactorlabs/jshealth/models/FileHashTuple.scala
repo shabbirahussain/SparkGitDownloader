@@ -8,8 +8,6 @@ package org.reactorlabs.jshealth.models
  * @param fileHash is the hash of the file.
  * @param error is a custom field carrying error message.
  * @param commitId is commit id of the file.
- * @param author is commit author.
- * @param longMsg is full commit message.
  * @param commitTime is time file is committed.
  *
  * @author shabbirahussain
@@ -20,8 +18,6 @@ case class FileHashTuple(owner:     String,
                          gitPath:   String = "",
                          fileHash:  String = null,
                          commitId:  String = null,
-                         author:    String = null,
-                         longMsg:   String = null,
                          error:     Option[String] = None,
                          commitTime:Long = 0){
   override def toString

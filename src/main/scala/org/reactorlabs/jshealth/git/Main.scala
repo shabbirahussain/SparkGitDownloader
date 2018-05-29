@@ -18,10 +18,15 @@ import org.reactorlabs.jshealth.util.escapeString
 import org.apache.hadoop.fs.Path
 import org.apache.spark.rdd.RDD
 import org.eclipse.jgit.api.Git
+import monix.tail._
+import monix.eval._
+import monix.execution.CancelableFuture
+import monix.reactive.{Consumer, Observable}
 
 import scala.collection.JavaConversions._
+import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.util.{Failure, Random, Success, Try}
-
+import scala.concurrent.duration._
 /**
   * @author shabbirahussain
   */
@@ -126,12 +131,12 @@ object Main {
     */
   def crawlFileHistory()
   : Boolean = {
-    logger.log(Level.INFO, "\tChecking out links ...")
+    logger.log(Level.INFO, "Checking out links ...")
     val (links, token) = ds.checkoutReposToCrawl(crawlBatchSize)
     links.persist(StorageLevel.DISK_ONLY)
     if (links.isEmpty()) return false
 
-    logger.log(Level.INFO, "\tInitializing ...")
+    logger.log(Level.INFO, "Initializing ...")
     val data = links
       .repartition(crawlBatchSize / groupSize)
       .mapPartitions(_.grouped(groupSize), preservesPartitioning = true)
@@ -140,20 +145,24 @@ object Main {
         true
       })  // Cleanup previous clones
       .filter(_=> {
-      val msg = "\n" + new Date() + "\tLoading next batch ..."
-      println(msg)
-      logger.log(Level.INFO, msg)
-      true
-    })  // Progress monitor map stage
-      .flatMap(y=> ExecutionQueue(y.map(x=> ()=> {
-        tryCloneRepo(x._1, x._2, x._3, token) // Clone the git repo batch
-          .flatMap(git=> tryGetRepoFilesHistory(git, token)
-            .filter(fht=> metaExtns.isEmpty || metaExtns.contains(scala.reflect.io.File(fht.gitPath).extension))
-            .map(x=> (x.owner, x.repo, x.gitPath, x.fileHash, x.commitTime, x.commitId))
-          ) // Gather requested data
-      }), nWorkers).flatten)
+        logger.log(Level.INFO,  "Loading next batch ...")
+        true
+      })  // Progress monitor stage
+      .flatMap(batch=> {
+        import monix.execution.Scheduler.Implicits.global
+        val res = Observable
+          .fromIterable(batch)
+          .mapParallelUnordered(nWorkers * 2)(x=> Task(tryCloneRepo(x._1, x._2, x._3, token)))
+          .filter(_.nonEmpty).map(_.head)
+          .mapParallelUnordered(nWorkers)(x=> Task(tryGetRepoFilesHistory(x, token)))
+          .toListL.runAsync
+        Await.result(res, Duration.Inf)
+      })
+      .flatMap(x=> x)
+      .filter(fht=> metaExtns.isEmpty || metaExtns.contains(scala.reflect.io.File(fht.gitPath).extension))
+      .map(x=> (x.owner, x.repo, x.gitPath, x.fileHash, x.commitTime, x.commitId))
       .toDF(Schemas.asMap(Schemas.FILE_METADATA)._3:_*)
-    ds.storeRecords(data, folder = "%s/%s".format(token.toString, Schemas.FILE_METADATA))
+    ds.storeRecords(data, folder = "%d/%s".format(token, Schemas.FILE_METADATA))
 
     ds.markRepoCompleted(links.map(x=> (x._1, x._2, x._3)), token)
     links.unpersist(blocking = false)

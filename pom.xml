@@ -78,6 +78,12 @@
             <version>1.0.2</version>
         </dependency>
 
+        <!-- https://mvnrepository.com/artifact/io.monix/monix -->
+        <dependency>
+            <groupId>io.monix</groupId>
+            <artifactId>monix_2.11</artifactId>
+            <version>3.0.0-8084549</version>
+        </dependency>
     </dependencies>
     <build>
         <plugins>

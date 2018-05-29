@@ -4,6 +4,7 @@ import java.io.File
 import java.nio.file.Paths
 import java.util.concurrent.Executors
 
+import scala.collection.mutable
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.concurrent.duration.Duration
 import scala.reflect.runtime.universe._
@@ -13,18 +14,24 @@ import scala.util.Try
   * @author shabbirahussain
   */
 package object util {
-  case class ExecutionQueue[T](solvers: Iterable[() => T], nThreads: Int = 1)
+  case class ExecutionService[T](solvers: Iterator[() => T], nThreads: Int = 1)
     extends Iterator[T] {
     private case class Result(f: Future[Result], r: T)
     private val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(nThreads))
-    private var futures: Set[Future[Result]] = solvers.map(s=> {
-      lazy val f: Future[Result]  = Future{Result(f, s())}(ec)
-      f
-    }).toSet
-    def hasNext(): Boolean = futures.nonEmpty
-    def next(): T = {
-      val result = Await.result(Future.firstCompletedOf(futures.toSeq)(ec), Duration.Inf)
-      futures -= result.f
+    private val futureResults = mutable.Set[Future[Result]]()
+    private def submitJob(s: () => T): Future[Result] = {
+      lazy val fr: Future[Result] = Future{Result(fr, s())}(ec)
+      futureResults += fr
+      fr
+    }
+    import scala.concurrent.ExecutionContext.Implicits.global
+    Future {solvers.map(submitJob)}//.foreach(x=> x.foreach(_=>{}))
+
+    override def hasNext(): Boolean = solvers.nonEmpty || futureResults.nonEmpty
+    override def next(): T = {
+      if (futureResults.isEmpty && solvers.hasNext)  submitJob(solvers.next())
+      val result = Await.result(Future.firstCompletedOf(futureResults.toSeq)(ec), Duration.Inf)
+      futureResults -= result.f
       result.r
     }
   }

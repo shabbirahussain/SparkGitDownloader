@@ -17,11 +17,10 @@ import org.reactorlabs.jshealth.datastores.Keychain
 import org.reactorlabs.jshealth.models.FileHashTuple
 
 import scala.collection.JavaConverters._
-
 import org.eclipse.jgit.errors.MissingObjectException
 
 import scala.collection.concurrent.TrieMap
-import scala.collection.mutable
+import scala.collection.{SortedMap, mutable}
 import scala.util.{Failure, Try}
 
 /** Class responsible for downloading files from github.com. It serves as a wrapper over Git API.
@@ -55,19 +54,25 @@ class GitHubClient(keychain: Keychain, workingGitDir: String)
     }
   }
 
+  private val columnWidths = Seq("Cloning:", "%-20.20s", "Processing:", "%-20.20s", "%4s", "%8s")
+  private def showStatus(values: Map[Int, String]): Unit = {
+    val msg = new Date() + " " + columnWidths
+      .zipWithIndex
+      .map(x=> x._1.format(values.getOrElse(x._2, "")))
+      .mkString(" ")
+    print("%s\r%s".format("\b" * msg.length, msg))
+  }
+
   override def gitCloneRepo(owner: String, repo: String): Git = {
     var res: Git = null
-    val workinDir = Paths.get(workingGitDir + "/" + owner + "/" + repo).toFile
+    val workinDir = Paths.get("%s/%s/%s".format(workingGitDir, owner, repo)).toFile
 
-    val msg = "\r" + (new Date()) +"\tCloning : %s/%s".format(owner, repo)
-    println(("\b" * 200) + msg)
-
+    showStatus(Map(1-> "%s/%s\n".format(owner, repo)))
     apiKey = keychain.getNextKey(apiKey, remaining, reset, isValid)
     res = Git.cloneRepository()
         .setDirectory(workinDir)
         .setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", apiKey ))
         .setCloneAllBranches(true)
-        //.setProgressMonitor()
         .setURI("%s/%s/%s".format(githubUrl, owner, repo))
         .call()
 
@@ -101,11 +106,11 @@ class GitHubClient(keychain: Keychain, workingGitDir: String)
     val res = allCommits.reverse
       // Progress monitor
       .zipWithIndex.map(x=> {
-          if (x._2 % 10 == 0 || x._2 == tCnt){
-            val msg = "\r" + (new Date()) + "\t\t\t\t\t\t\tProcessing: %s/%s:  %.2f%% of %7d commits"
-              .format(owner, repo, (x._2 + 1)*100.0/cnt, cnt)+ (" "*20)
-            print(("\b" * msg.length) + msg)
-          }
+          if (x._2 % 10 == 0 || x._2 == tCnt)
+            showStatus(
+              Map(3-> "%s/%s"  .format(owner, repo)
+                , 4-> "%2.2f%%".format((x._2 + 1)*100.0/cnt)
+                , 5-> "of %7d" .format(cnt)))
           x._1
       })
       .flatMap(x=> {
@@ -125,9 +130,7 @@ class GitHubClient(keychain: Keychain, workingGitDir: String)
                 gitPath   = y._1,
                 fileHash  = y._2,
                 commitId  = x.getId.name(),
-                commitTime= x.getCommitTime,
-                longMsg   = x.getFullMessage,
-                author    = x.getAuthorIdent.getEmailAddress)
+                commitTime= x.getCommitTime)
             )
 
           newTreeIter.reset(reader, repository.resolve(x.getTree.getName))
