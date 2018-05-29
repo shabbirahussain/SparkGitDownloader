@@ -22,8 +22,8 @@ class Keychain(keyFilePath: String) extends Serializable {
     val source = scala.io.Source.fromFile(keyFilePath)
     source.getLines.foreach(x=>available += x.trim)
     source.close()
-    if (available.isEmpty) throw new Exception("No auth keys found at: " + keyFilePath)
   } catch {case e: Exception => throw e}
+  if (available.isEmpty) throw new RuntimeException("No auth keys found at: " + keyFilePath)
 
   private val rnd = scala.util.Random
 

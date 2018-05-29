@@ -127,17 +127,17 @@ class LocalStore extends DataStore {
     val token = System.currentTimeMillis()
 
     // Set checkout timestamp
-//    execInBatch(
-//      rdd.map(row =>{
-//            """
-//              |UPDATE REPOS_QUEUE
-//              |   SET CHECKOUT_ID = %d
-//              |WHERE REPO_OWNER   = '%s'
-//              |  AND REPOSITORY   = '%s'
-//              |  AND BRANCH       = '%s';
-//            """.stripMargin.format(token, escapeSql(row._1), escapeSql(row._2), row._3)
-//        }), batchSize = limit, autoCommit = false
-//    )
+    execInBatch(
+      rdd.map(row =>{
+            """
+              |UPDATE REPOS_QUEUE
+              |   SET CHECKOUT_ID = %d
+              |WHERE REPO_OWNER   = '%s'
+              |  AND REPOSITORY   = '%s'
+              |  AND BRANCH       = '%s';
+            """.stripMargin.format(token, escapeSql(row._1), escapeSql(row._2), row._3)
+        }), batchSize = limit, autoCommit = false
+    )
     (rdd, token)
   }
   override def storeProjectsQueue(projects: RDD[String])

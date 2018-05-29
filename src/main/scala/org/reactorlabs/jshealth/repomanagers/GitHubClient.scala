@@ -31,7 +31,7 @@ import scala.util.{Failure, Try}
   * @author shabbirahussain
   */
 @SerialVersionUID(100L)
-class GitHubClient(keychain: Keychain, workingGitDir: String)
+class GitHubClient(keychain: Keychain, workingGitDir: String, cloningTimeout: Int)
   extends RepoManager with Serializable {
   private val githubUrl = "https://github.com"
 //  private val decoder = Codec.UTF8.decoder.onMalformedInput(CodingErrorAction.IGNORE)
@@ -39,7 +39,16 @@ class GitHubClient(keychain: Keychain, workingGitDir: String)
   private var apiKey   : String   = _
   private var remaining: Int      = 1
   private var reset    : Long     = 0
-  private var isValid  : Boolean  = false
+  private var isValid  : Boolean  = true
+
+  private val columnWidths = Seq("Cloning:", "%-20.20s", "Processing:", "%-20.20s", "%8.8s", "%5s")
+  private def showStatus(values: Map[Int, String]): Unit = {
+    val msg = new Date() + " " + columnWidths
+      .zipWithIndex
+      .map(x=> x._1.format(values.getOrElse(x._2, "")))
+      .mkString(" ")
+    print("%s\r%s".format("\b" * msg.length, msg))
+  }
 
   private def getAllCommits(git: Git): Seq[RevCommit] = {
     Try(git.log().call().asScala.toSeq)
@@ -54,26 +63,18 @@ class GitHubClient(keychain: Keychain, workingGitDir: String)
     }
   }
 
-  private val columnWidths = Seq("Cloning:", "%-20.20s", "Processing:", "%-20.20s", "%4s", "%8s")
-  private def showStatus(values: Map[Int, String]): Unit = {
-    val msg = new Date() + " " + columnWidths
-      .zipWithIndex
-      .map(x=> x._1.format(values.getOrElse(x._2, "")))
-      .mkString(" ")
-    print("%s\r%s".format("\b" * msg.length, msg))
-  }
-
   override def gitCloneRepo(owner: String, repo: String): Git = {
     var res: Git = null
     val workinDir = Paths.get("%s/%s/%s".format(workingGitDir, owner, repo)).toFile
 
-    showStatus(Map(1-> "%s/%s\n".format(owner, repo)))
+    showStatus(Map(1-> "%s/%s".format(owner, repo), 3-> "\n"))
     apiKey = keychain.getNextKey(apiKey, remaining, reset, isValid)
     res = Git.cloneRepository()
         .setDirectory(workinDir)
         .setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", apiKey ))
         .setCloneAllBranches(true)
         .setURI("%s/%s/%s".format(githubUrl, owner, repo))
+        .setTimeout(cloningTimeout)
         .call()
 
     isValid = true
@@ -106,11 +107,16 @@ class GitHubClient(keychain: Keychain, workingGitDir: String)
     val res = allCommits.reverse
       // Progress monitor
       .zipWithIndex.map(x=> {
-          if (x._2 % 10 == 0 || x._2 == tCnt)
+          if (x._2 % 10 == 0)
             showStatus(
               Map(3-> "%s/%s"  .format(owner, repo)
                 , 4-> "%2.2f%%".format((x._2 + 1)*100.0/cnt)
                 , 5-> "of %7d" .format(cnt)))
+          else if ( x._2 == tCnt)
+            showStatus(
+              Map(3-> "%s/%s"  .format(owner, repo)
+                , 4-> "%2.2f%%".format((x._2 + 1)*100.0/cnt)
+                , 5-> "of %7d\n" .format(cnt)))
           x._1
       })
       .flatMap(x=> {

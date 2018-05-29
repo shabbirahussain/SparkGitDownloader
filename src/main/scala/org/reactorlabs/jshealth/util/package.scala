@@ -6,7 +6,7 @@ import java.util.concurrent.Executors
 
 import scala.collection.mutable
 import scala.concurrent.{Await, ExecutionContext, Future}
-import scala.concurrent.duration.Duration
+import scala.concurrent.duration.{Duration, FiniteDuration}
 import scala.reflect.runtime.universe._
 import scala.util.Try
 
@@ -14,7 +14,7 @@ import scala.util.Try
   * @author shabbirahussain
   */
 package object util {
-  case class ExecutionService[T](solvers: Iterator[() => T], nThreads: Int = 1)
+  case class ExecutionService[T](solvers: Iterable[() => T], nThreads: Int = 1)
     extends Iterator[T] {
     private case class Result(f: Future[Result], r: T)
     private val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(nThreads))
@@ -24,12 +24,10 @@ package object util {
       futureResults += fr
       fr
     }
-    import scala.concurrent.ExecutionContext.Implicits.global
-    Future {solvers.map(submitJob)}//.foreach(x=> x.foreach(_=>{}))
+    solvers.map(submitJob)
 
-    override def hasNext(): Boolean = solvers.nonEmpty || futureResults.nonEmpty
+    override def hasNext(): Boolean = futureResults.nonEmpty
     override def next(): T = {
-      if (futureResults.isEmpty && solvers.hasNext)  submitJob(solvers.next())
       val result = Await.result(Future.firstCompletedOf(futureResults.toSeq)(ec), Duration.Inf)
       futureResults -= result.f
       result.r

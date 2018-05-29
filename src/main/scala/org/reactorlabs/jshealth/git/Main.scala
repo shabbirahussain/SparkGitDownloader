@@ -5,6 +5,11 @@ import java.nio.file.Paths
 import java.util.Date
 import java.util.concurrent.{Executors, TimeUnit}
 
+import akka.actor.ActorSystem
+import akka.stream.ActorAttributes.supervisionStrategy
+import akka.stream.{ActorMaterializer, OverflowStrategy, Supervision}
+import akka.stream.scaladsl.{Sink, Source}
+import com.typesafe.config.ConfigFactory
 import org.apache.log4j.Level
 import org.reactorlabs.jshealth.Main._
 import org.reactorlabs.jshealth.datastores.Keychain
@@ -18,10 +23,6 @@ import org.reactorlabs.jshealth.util.escapeString
 import org.apache.hadoop.fs.Path
 import org.apache.spark.rdd.RDD
 import org.eclipse.jgit.api.Git
-import monix.tail._
-import monix.eval._
-import monix.execution.CancelableFuture
-import monix.reactive.{Consumer, Observable}
 
 import scala.collection.JavaConversions._
 import scala.concurrent.{Await, ExecutionContext, Future}
@@ -38,7 +39,8 @@ object Main {
   private val keychain        = new Keychain(prop.getProperty("git.api.keys.path"))
   private val crawlBatchSize  = prop.getProperty("git.crawl.batch.size").toInt
   private val groupSize       = prop.getProperty("git.downloader.group.size").toInt
-  private val nWorkers          = prop.getProperty("git.downloader.numworkers").toInt
+  private val nWorkers        = prop.getProperty("git.downloader.numworkers").toInt
+  private val clonedRepoBuff  = prop.getProperty("git.downloader.repo.buffer").toInt
   private val consolFreq      = prop.getProperty("git.downloader.consolidation.frequency").toInt
   private val genDataFor      = prop.getProperty("git.generate.data.for")
     .toUpperCase.split(",").map(_.trim)
@@ -48,10 +50,27 @@ object Main {
     val hadoopDir = sc.hadoopConfiguration.get("hadoop.tmp.dir", "/tmp")
     new File( "%s/repos/%d".format(hadoopDir, System.currentTimeMillis()))
   }
+  private val cloningTimeout  = prop.getProperty("git.dowloader.cloning.timeout.sec").toInt
   private val gitClient : RepoManager = new GitHubClient(
       keychain   = keychain,
-      workingGitDir = gitPath.toPath.toAbsolutePath.toString
+      workingGitDir = gitPath.toPath.toAbsolutePath.toString,
+      cloningTimeout
   )
+
+//  val config = ConfigFactory.load()
+//  implicit val system: ActorSystem = ActorSystem.create("MyAkka", config.getConfig("configuration"))
+//  implicit val materializer: ActorMaterializer = ActorMaterializer()
+//  implicit val ec = system.dispatchers.lookup("default-dispatcher")
+//  private val decider: Supervision.Decider = {
+//    case _: NullPointerException => Supervision.Stop
+//    case _: InvalidRemoteException => Supervision.Resume
+//    case e: TransportException => {
+//      //      if (e.getMessage.contains("400 Bad Request")) Supervision.Resume
+//      //      else Supervision.Restart
+//      Supervision.Resume
+//    }
+//    case _ => Supervision.Resume
+//  }
 
   /**
     * @param git is the cloned git repo object to fetch details from.
@@ -145,20 +164,13 @@ object Main {
         true
       })  // Cleanup previous clones
       .filter(_=> {
-        logger.log(Level.INFO,  "Loading next batch ...")
+        logger.log(Level.INFO,  "\n\n\nLoading next batch ...")
         true
       })  // Progress monitor stage
       .flatMap(batch=> {
-        import monix.execution.Scheduler.Implicits.global
-        val res = Observable
-          .fromIterable(batch)
-          .mapParallelUnordered(nWorkers * 2)(x=> Task(tryCloneRepo(x._1, x._2, x._3, token)))
-          .filter(_.nonEmpty).map(_.head)
-          .mapParallelUnordered(nWorkers)(x=> Task(tryGetRepoFilesHistory(x, token)))
-          .toListL.runAsync
-        Await.result(res, Duration.Inf)
+        val gits = ExecutionService(batch.map(x=>()=>tryCloneRepo(x._1, x._2, x._3, token)), nWorkers).flatten
+        gits.flatMap(x=> tryGetRepoFilesHistory(x, token))
       })
-      .flatMap(x=> x)
       .filter(fht=> metaExtns.isEmpty || metaExtns.contains(scala.reflect.io.File(fht.gitPath).extension))
       .map(x=> (x.owner, x.repo, x.gitPath, x.fileHash, x.commitTime, x.commitId))
       .toDF(Schemas.asMap(Schemas.FILE_METADATA)._3:_*)
@@ -274,11 +286,11 @@ object Main {
     var ctr: Long = 0
     do{
       continue = crawlFileHistory()
-      ctr += 1
-      if (ctr % consolFreq == 0){
-        logger.log(Level.INFO, "\tConsolidating ...")
-        ds.consolidateData(genDataFor)
-      }
+//      ctr += 1
+//      if (ctr % consolFreq == 0){
+//        logger.log(Level.INFO, "\tConsolidating ...")
+//        ds.consolidateData(genDataFor)
+//      }
     } while(continue)
   }
 }
