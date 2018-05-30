@@ -78,7 +78,9 @@ class LocalStore extends DataStore {
       .fromInputStream(this.getClass.getClassLoader.getResourceAsStream(mySqlSetupPath))
       .getLines()
       .mkString("\n")
-    execInBatch(Seq(sql), autoCommit = true)
+      .split(";")
+
+    execInBatch(sql, autoCommit = true)
   }
   // ================ API Methods ===================
 

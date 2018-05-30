@@ -40,17 +40,20 @@ set -e
 trap 'cleanup' EXIT
 
 # Create data directory
-[ -d "${DATA_DIR}" ] || mkdir "${DATA_DIR}"
+[ -d "${DATA_DIR}" ] || mkdir -p "${DATA_DIR}"
 cd "${DATA_DIR}"
 
 # Download tar
 echo -e "Starting download..."
+echo -e "curl -S ${GHT_URL}${TAR_NAME} | tar -C ${DATA_DIR} -xvz ${FILES[@]} 2>&1 | head -${FILES_CNT} > ${CTRL_FILE}  2>&1"
+
 curl -S "${GHT_URL}${TAR_NAME}" | \
-    tar -C "${DATA_DIR}" -xv "${FILES[@]}" 2>&1 | \
+    tar -C "${DATA_DIR}" -xvz "${FILES[@]}" 2>&1 | \
     head -"${FILES_CNT}" > "${CTRL_FILE}"  2>&1 &
+CURL_PID=$!
 
 # Wait for the required files to be found in the tar
-until [[ -s "${CTRL_FILE}" && $(wc -l "${CTRL_FILE}" | cut -d' ' -f 8) -ge "${FILES_CNT}" ]]; do
+until [[ (! -n "$(ps -p ${CURL_PID} -o pid=)") || (-s "${CTRL_FILE}" && $(wc -l "${CTRL_FILE}" | cut -d' ' -f 8) -ge "${FILES_CNT}") ]]; do
     sleep 10s
 done
 

@@ -37,7 +37,7 @@ object Main {
     */
   private def cloneResource(resourceName: String)
   : String = {
-    val extension = scala.reflect.io.File(scala.reflect.io.Path(resourceName)).extension
+    val extension = "." + scala.reflect.io.File(scala.reflect.io.Path(resourceName)).extension
     val stream  = this.getClass.getClassLoader.getResourceAsStream(resourceName)
     val f = File.createTempFile(resourceName, extension)
     f.deleteOnExit()

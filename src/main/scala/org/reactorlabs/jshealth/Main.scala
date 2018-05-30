@@ -1,11 +1,12 @@
 package org.reactorlabs.jshealth
 
+import java.io.{ByteArrayInputStream, FileInputStream, InputStream}
 import java.net.URLClassLoader
 import java.util.{Date, Properties}
 
 import org.apache.hadoop.fs.FileSystem
 import org.apache.log4j.Logger
-import org.apache.spark.SparkContext
+import org.apache.spark.{SparkContext, SparkFiles}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.{SQLContext, SparkSession}
 import org.reactorlabs.jshealth.datastores.{DataStore, LocalStore}
@@ -18,17 +19,6 @@ import scala.io.Source
 object Main extends Serializable {
   val logger:Logger = Logger.getLogger("project.defaultLogger")
 
-  val prop: Properties = new Properties()
-  try {
-    val loader = this.getClass.getClassLoader
-    val stream = loader.getResourceAsStream("resources/conf/config-defaults.properties")
-    prop.load(stream)
-    stream.close()
-
-//    val stream1 = new FileInputStream("config.properties")
-//    prop.load(stream1)
-//    stream1.close()
-  } catch { case e: Exception => e.printStackTrace(); sys.exit(1)}
 
   val spark: SparkSession = SparkSession
     .builder()
@@ -37,9 +27,22 @@ object Main extends Serializable {
     .getOrCreate()
 
   val sc: SparkContext = spark.sparkContext
-  sc.setCheckpointDir("target/temp/spark/")
-
   val sqlContext: SQLContext = spark.sqlContext
+
+  val prop: Properties = new Properties()
+  try {
+//        ClassLoader
+//          .getSystemClassLoader
+//          .asInstanceOf[URLClassLoader]
+//          .getURLs
+//          .foreach(x=> println(x.getFile))
+
+    val path = SparkFiles.get("config-defaults.properties")
+    val stream = new FileInputStream(path) //this.getClass.getClassLoader.getResourceAsStream(path)
+    prop.load(stream)
+
+    stream.close()
+  } catch { case e: Exception => e.printStackTrace(); sys.exit(1)}
 
   val hconf = sc.hadoopConfiguration
   hconf.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
@@ -61,7 +64,9 @@ object Main extends Serializable {
         "username"  -> username,
         "user"      -> username,
         "password"  -> password,
-        "schema"    -> schema))
+        "schema"    -> schema,
+        "isolationLevel" -> "READ_COMMITTED"
+      ))
   }
   val mySqlSetupPath: String = prop.getProperty("ds.mysql.setup.path")
   val fileStorePath: String  = prop.getProperty("ds.file.store.path")

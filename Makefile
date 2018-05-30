@@ -1,4 +1,4 @@
-INPUT_COMMAND=git
+INPUT_COMMAND=ght
 
 SPARK_BIN_PATH=
 SCALA_BIN_PATH=
@@ -32,7 +32,7 @@ DEPLOYABLE_PAYLOAD_DIR=payload/
 
 PWD=`pwd`/
 COMMA=,
-FULL_RUNTIME_JARS=${RUNTIME_LIB_PATH}$(subst ${COMMA},{COMMA}${RUNTIME_LIB_PATH},${RUNTIME_JARS})
+FULL_RUNTIME_JARS=${RUNTIME_LIB_PATH}$(subst ${COMMA},${COMMA}${RUNTIME_LIB_PATH},${RUNTIME_JARS})
 
 all: setup build_all run
 
@@ -50,36 +50,35 @@ build: copy_resources
 		-C ${CLASSES_PATH} .
 	rm -rf ${CLASSES_PATH}
 
-run: copy_resources
+run:
 	${SPARK_BIN_PATH}spark-submit \
 		--files "${EXTRA_RESOURCES_PATH}conf/config-defaults.properties" \
-		--conf "spark.executor.extraClassPath=./target/bundle/" \
 		--conf "spark.driver.extraJavaOptions=-Dlog4j.configuration='file:${PWD}${EXTRA_RESOURCES_PATH}conf/log4j.properties'" \
-		--driver-memory 15g --executor-memory 15G \
-	 	--jars "${FULL_RUNTIME_JARS}" \
-    	--class org.reactorlabs.jshealth.Main "${JAR_NAME}" ${INPUT_COMMAND}
+		--driver-memory 8g --executor-memory 8G \
+	 	--jars ${FULL_RUNTIME_JARS} \
+    	--class org.reactorlabs.jshealth.Main "${JAR_NAME}" "${INPUT_COMMAND}"
 
 install_deps:
 	mvn install dependency:copy-dependencies
 
 copy_resources:
-	mkdir -p "target/bundle/dependancy"
+	mkdir -p "target/bundle/dependency"
 	rm -rf "${CLASSES_PATH}"
 	mkdir -p "${CLASSES_PATH}"
 	mkdir -p "${PACKAGED_RESOURCES_PATH}scripts"
-	cp ${LIB_PATH}{${RUNTIME_JARS}} "target/bundle/dependancy/"
-	cp -r src/main/resources/* ${EXTRA_RESOURCES_PATH}
+	cp ${LIB_PATH}{${RUNTIME_JARS}} "target/bundle/dependency/"
+	cp -r src/main/resources/ ${EXTRA_RESOURCES_PATH}
 	cp -r src/main/{shell,mysql} "${PACKAGED_RESOURCES_PATH}scripts/"
 
 clean:
 	-rm -rf target/*
 
-create_deployable: # clean_build
+create_deployable: clean_build
 	rm -rf ${DEPLOYABLE_DIR}
 	mkdir -p ${DEPLOYABLE_DIR}${BUNDLE_DIR}
 	cp Makefile ${DEPLOYABLE_DIR}
 	cp -r ${BUNDLE_DIR} ${DEPLOYABLE_DIR}${BUNDLE_DIR}
-	! cp -r ${DEPLOYABLE_PAYLOAD_DIR} ${DEPLOYABLE_DIR}${DEPLOYABLE_PAYLOAD_DIR}
+	-cp -r ${DEPLOYABLE_PAYLOAD_DIR} ${DEPLOYABLE_DIR}${DEPLOYABLE_PAYLOAD_DIR}
 	tar -C ${DEPLOYABLE_DIR} -cvf target/deployable.tar .
 	rm -rf ${DEPLOYABLE_DIR}
 
@@ -103,7 +102,6 @@ ss:
 # AWS Specific scripts and configuration
 # ---------------------------------------------------------------------------------
 AWS_EXTRA_CLASSPATH=/etc/hadoop/conf:/etc/hive/conf:/usr/lib/hadoop-lzo/lib/*:/usr/share/aws/aws-java-sdk/*:/usr/share/aws/emr/emrfs/conf:/usr/share/aws/emr/emrfs/lib/*:/usr/share/aws/emr/emrfs/auxlib/*
-AWS_DIR=target/aws/
 
 aws_ss:
 	spark-shell --driver-memory 5G --executor-memory 5G \
@@ -127,4 +125,7 @@ aws: aws_deploy aws_ssh
 # PRL Specific scripts and configuration
 # ---------------------------------------------------------------------------------
 prl_deploy: create_deployable
-	scp "${DEPLOYABLE_TAR}" "${PRL_MACHINE}:/home/${PRL_USER}/project"
+	scp ${DEPLOYABLE_TAR} ${PRL_MACHINE}:/home/${PRL_USER}/Project
+
+prl_ssh:
+	ssh ${PRL_MACHINE}
