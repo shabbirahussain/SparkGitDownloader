@@ -138,22 +138,19 @@ class LocalStore extends DataStore {
               |  AND REPOSITORY   = '%s'
               |  AND BRANCH       = '%s';
             """.stripMargin.format(token, escapeSql(row._1), escapeSql(row._2), row._3)
-        }), batchSize = limit, autoCommit = false
+        }), batchSize = limit, autoCommit = true
     )
     (rdd, token)
   }
-  override def storeProjectsQueue(projects: RDD[String])
+  override def storeProjectsQueue(projects: RDD[(String, String)])
   : Unit = {
     setupDatabase() // Drop and create new queue.
 
     execInBatch(projects
-      .map(row => {
-        val parts = row.split("/")
-        if (parts.length != 2)   null
-        else
-          """INSERT IGNORE INTO REPOS_QUEUE(REPO_OWNER, REPOSITORY) VALUES ('%s', '%s');"""
-            .stripMargin.format(parts(0).toLowerCase(), escapeSql(parts(1)).toLowerCase())
-      }), autoCommit = true)
+      .map(row =>
+        """INSERT IGNORE INTO REPOS_QUEUE(REPO_OWNER, REPOSITORY) VALUES ('%s', '%s');"""
+            .stripMargin.format(row._1, escapeSql(row._2))
+      ), autoCommit = true)
   }
 
   override def getExistingHashes()

@@ -13,7 +13,7 @@ trait DataStore extends Serializable{
     *
     * @param projects is the RDD of project URLs.
     */
-  def storeProjectsQueue(projects: RDD[String]): Unit
+  def storeProjectsQueue(projects: RDD[(String, String)]): Unit
 
   /** Marks the checkout repositories as completed.
     *

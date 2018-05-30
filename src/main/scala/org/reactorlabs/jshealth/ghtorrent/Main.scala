@@ -9,12 +9,14 @@ import org.apache.commons.io.FileUtils
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.log4j.Level
+import org.apache.spark.sql.DataFrame
 import org.reactorlabs.jshealth.Main.{ds, logger, prop, sc, spark}
 import org.reactorlabs.jshealth.models.Languages
 
 import scala.io.Source
 import sys.process._
 import scala.language.postfixOps
+import scala.util.Try
 /**
   * @author shabbirahussain
   */
@@ -23,9 +25,9 @@ object Main {
   private val ghtTarName        = prop.getProperty("ghtorrent.archive.name")
   private val ghtProjFilters    = prop.getProperty("ghtorrent.project.filters").split(",").map(_.trim).toSet
 
-  private val ghtRepoPath      = sc.hadoopConfiguration.get("hadoop.tmp.dir", "/tmp") + "/ght"
-  private val ghtProjectsName  = ghtTarName + "/projects.csv"
-  private val ghtProjectsFile  = ghtRepoPath + "/" + ghtProjectsName
+  private val ghtRepoPath      = "%s/ght/".format(sc.hadoopConfiguration.get("hadoop.tmp.dir", "/tmp"))
+  private val filesToDownload  = Seq("projects.csv").map(x=> "%s/%s".format(ghtTarName, x))
+  private val ghtProjectsFile  = "%s%s/%s" .format(ghtRepoPath, ghtTarName, "projects.csv")
   private val parser = sc.broadcast(new GHTParser(Set(Languages.JavaScript, Languages.TypeScript, Languages.CoffeeScript)))
 
   import spark.implicits._
@@ -61,7 +63,7 @@ object Main {
     val cmd = cloneResource(ghtDownloaderPath) + " " +
       ghtTarName + ".tar.gz " +
       ghtRepoPath + " " +
-      ghtProjectsName
+      filesToDownload.mkString(" ")
 
     logger.log(Level.DEBUG, "$ " + cmd)
     cmd !
@@ -74,18 +76,24 @@ object Main {
     * @return RDD of projId.
     */
   private def getProjectList(csvPath: String, parser: Broadcast[GHTParser])
-  : RDD[String] = {
-    var res = sc.textFile(csvPath).map(parser.value.parse)
+  : RDD[(String, String)] = {
+    var res = sc.textFile(csvPath)
+      .map(parser.value.parse)
+      .filter(_.isSuccess)
+      .map(_.get)
+      .toDF()
 
-    res = ProjectFilters.filterCorrupt(res)
-    if (ghtProjFilters.contains("filterDeleted"))  res = ProjectFilters.filterDeleted(res)
-    if (ghtProjFilters.contains("filterForked"))   res = ProjectFilters.filterForked(res)
+    if (ghtProjFilters.contains("filterDeleted")) res = ProjectFilters.filterDeleted(res)
+    if (ghtProjFilters.contains("filterForked"))  res = ProjectFilters.filterForked(res)
 
-    val n = (ghtProjFilters + "filterTop-1").filter(_.startsWith("filterTop"))
-        .map(x=>try {x.substring(9).toInt} catch{case _:Exception=> -1}).max
-    if (n > -1)                             res = ProjectFilters.filterTopN(res, n)
+    ghtProjFilters
+      .filter(_.startsWith("filterTop"))
+      .map(x=> Try(x.substring(9).toInt))
+      .filter(_.isSuccess).map(_.get)
+      .take(1)
+      .foreach(n=> res = ProjectFilters.filterTopN(res, n))
 
-    res.map(_._1)
+     res.rdd.map(row=> (row.getAs[String]("projOwner"), row.getAs[String]("projRepo")))
   }
 
   def main(args: Array[String])

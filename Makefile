@@ -129,3 +129,6 @@ prl_deploy: create_deployable
 
 prl_ssh:
 	ssh ${PRL_MACHINE}
+
+prl_fetch:
+	scp -r ${PRL_MACHINE}:/tmp/hadoop-hshabbir/ght/ /tmp/hadoop-shabbirhussain/ght/

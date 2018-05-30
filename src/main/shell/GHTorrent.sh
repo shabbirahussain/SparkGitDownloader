@@ -49,12 +49,16 @@ echo -e "curl -S ${GHT_URL}${TAR_NAME} | tar -C ${DATA_DIR} -xvz ${FILES[@]} 2>&
 
 curl -S "${GHT_URL}${TAR_NAME}" | \
     tar -C "${DATA_DIR}" -xvz "${FILES[@]}" 2>&1 | \
-    head -"${FILES_CNT}" > "${CTRL_FILE}"  2>&1 &
-CURL_PID=$!
+    head -"${FILES_CNT}" > "${CTRL_FILE}"  2>&1 # &
+#CURL_PID=$!
+#echo -e "Background CURL_PID=${CURL_PID}"
+#
+## Wait for the required files to be found in the tar
+#until [[ ! -n "$(ps -p ${CURL_PID} -o pid=)" ]]; do
+#    sleep 10s
+#done
 
-# Wait for the required files to be found in the tar
-until [[ (! -n "$(ps -p ${CURL_PID} -o pid=)") || (-s "${CTRL_FILE}" && $(wc -l "${CTRL_FILE}" | cut -d' ' -f 8) -ge "${FILES_CNT}") ]]; do
-    sleep 10s
-done
+echo -e "\nFound required file(s) from tar. Interrupting download!!"
 
-echo -e "\nFound required files from tar. Interrupting download!!"
+#echo -e "\nZipping all file individually..."
+#gzip -r "${DATA_DIR}"
