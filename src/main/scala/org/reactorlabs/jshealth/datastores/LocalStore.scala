@@ -84,7 +84,7 @@ class LocalStore extends DataStore {
   }
   // ================ API Methods ===================
 
-  override def markRepoCompleted(repo: RDD[(String, String, String)], token: Long)
+  override def markRepoCompleted(repo: RDD[(String, String)], token: Long)
   : Unit = {
     execInBatch(repo
       .map(row =>
@@ -94,11 +94,10 @@ class LocalStore extends DataStore {
             |       CHECKOUT_ID = %d
             |WHERE REPO_OWNER = '%s'
             |  AND REPOSITORY = '%s'
-            |  AND BRANCH     = '%s'
-        """.stripMargin.format(token, escapeSql(row._1), escapeSql(row._2), row._3)
+        """.stripMargin.format(token, escapeSql(row._1), escapeSql(row._2))
       ), autoCommit = true)
   }
-  override def markRepoError(owner: String, repo: String, branch: String, err: String, token: Long)
+  override def markRepoError(owner: String, repo: String, err: String, token: Long)
   : Unit = {
     execInBatch(Seq(
         """
@@ -107,24 +106,23 @@ class LocalStore extends DataStore {
           |       CHECKOUT_ID = %d
           |WHERE REPO_OWNER = '%s'
           |  AND REPOSITORY = '%s'
-          |  AND BRANCH     = '%s'
-        """.stripMargin.format(escapeSql(err), token, escapeSql(owner), escapeSql(repo), branch)
+        """.stripMargin.format(escapeSql(err), token, escapeSql(owner), escapeSql(repo))
       ), autoCommit = true)
   }
   override def checkoutReposToCrawl(limit: Int = 1000)
-  : (RDD[(String, String, String)], Long) = {
+  : (RDD[(String, String)], Long) = {
     val rdd = sqlContext
       .read
       .format("jdbc")
       .options(dbConnOptions.value)
       .option("dbtable", "REPOS_QUEUE")
       .load()
-      .select($"REPO_OWNER", $"REPOSITORY", $"BRANCH")
+      .select($"REPO_OWNER", $"REPOSITORY")
       .filter($"COMPLETED" === false)
       .filter($"CHECKOUT_ID".isNull)
       .limit(limit)
       .rdd
-      .map(x=> (x.get(0).toString, x.get(1).toString, x.get(2).toString))
+      .map(x=> (x.get(0).toString, x.get(1).toString))
 
     val token = System.currentTimeMillis()
 
@@ -136,8 +134,7 @@ class LocalStore extends DataStore {
               |   SET CHECKOUT_ID = %d
               |WHERE REPO_OWNER   = '%s'
               |  AND REPOSITORY   = '%s'
-              |  AND BRANCH       = '%s';
-            """.stripMargin.format(token, escapeSql(row._1), escapeSql(row._2), row._3)
+            """.stripMargin.format(token, escapeSql(row._1), escapeSql(row._2))
         }), batchSize = limit, autoCommit = true
     )
     (rdd, token)

@@ -20,23 +20,22 @@ trait DataStore extends Serializable{
     * @param repo is the repo to update in format (onwer, repository, branch).
     * @param token is the token of the process that marked these records.
     */
-  def markRepoCompleted(repo: RDD[(String, String, String)], token: Long): Unit
+  def markRepoCompleted(repo: RDD[(String, String)], token: Long): Unit
 
   /** Marks a repo with error.
     *
     * @param owner is the owner of the repo.
     * @param repo is the repo name.
-    * @param branch is the branch of repo.
     * @param err is the error message to update.
     * @param token is the token of the process that marked these records.
     */
-  def markRepoError(owner: String, repo: String, branch: String, err: String, token: Long): Unit
+  def markRepoError(owner: String, repo: String, err: String, token: Long): Unit
 
   /**
     * @param limit is the maximum number of records to fetch.
-    * @return an RDD of repos which are yet to be completed and a token required to mark them completed.
+    * @return An RDD of repos which are yet to be completed and a token required to mark them completed.
     */
-  def checkoutReposToCrawl(limit: Int): (RDD[(String, String, String)], Long)
+  def checkoutReposToCrawl(limit: Int): (RDD[(String, String)], Long)
 
   /** Stores the file hash tuple history.
     *

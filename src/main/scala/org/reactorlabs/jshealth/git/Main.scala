@@ -85,17 +85,16 @@ object Main {
     *
     * @param owner is the owner of the repository.
     * @param repo is the repository name.
-    * @param branch is the branch to clone.
     * @param token is the token id of the process.
     * @return A single element seq of Git object if successful.
     */
-  private def tryCloneRepo(owner: String, repo: String, branch: String, token: Long)
+  private def tryCloneRepo(owner: String, repo: String, token: Long)
   : Seq[Git] = {
     Try(gitClient.gitCloneRepo(owner, repo))
     match {
       case _ @ Failure(e) =>
         logger.log(Level.ERROR, "Cloning Error [https://github.com/%s/%s]".format(owner, repo) + e.getMessage)
-        ds.markRepoError(owner, repo, branch, err = e.getMessage, token = token)
+        ds.markRepoError(owner, repo, err = e.getMessage, token = token)
         e match {
           case _: TransportException | _: InvalidRemoteException =>
           case e: Throwable => e.printStackTrace()
@@ -118,7 +117,7 @@ object Main {
     match {
       case _@Failure(e) =>
         logger.log(Level.ERROR, e.getMessage)
-        ds.markRepoError(owner, repo, branch = "master", err = e.getMessage, token = token)
+        ds.markRepoError(owner, repo, err = e.getMessage, token = token)
         Seq.empty
       case success@_ => success.get
     }
@@ -138,7 +137,7 @@ object Main {
     match {
       case _ @ Failure(e) =>
         logger.log(Level.ERROR, e.getMessage)
-        ds.markRepoError(owner, repo, branch = "master", err = e.getMessage, token = token)
+        ds.markRepoError(owner, repo, err = e.getMessage, token = token)
         Seq.empty
       case success @ _ => Seq(success.get)
     }
@@ -168,7 +167,7 @@ object Main {
         true
       })  // Progress monitor stage
       .flatMap(batch=> {
-        val gits = ExecutionService(batch.map(x=>()=>tryCloneRepo(x._1, x._2, x._3, token)), nWorkers).flatten
+        val gits = ExecutionService(batch.map(x=>()=>tryCloneRepo(x._1, x._2, token)), nWorkers).flatten
         gits.flatMap(x=> tryGetRepoFilesHistory(x, token))
       })
       .filter(fht=> metaExtns.isEmpty || metaExtns.contains(scala.reflect.io.File(fht.gitPath).extension))
@@ -176,7 +175,7 @@ object Main {
       .toDF(Schemas.asMap(Schemas.FILE_METADATA)._3:_*)
     ds.storeRecords(data, folder = "%d/%s".format(token, Schemas.FILE_METADATA))
 
-    ds.markRepoCompleted(links.map(x=> (x._1, x._2, x._3)), token)
+    ds.markRepoCompleted(links.map(x=> (x._1, x._2)), token)
     links.unpersist(blocking = false)
     true
   }

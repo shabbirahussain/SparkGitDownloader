@@ -93,7 +93,9 @@ object Main {
       .take(1)
       .foreach(n=> res = ProjectFilters.filterTopN(res, n))
 
-     res.rdd.map(row=> (row.getAs[String]("projOwner"), row.getAs[String]("projRepo")))
+     res.rdd
+       .map(row=> (row.getAs[String]("projOwner"), row.getAs[String]("projRepo")))
+       .distinct()
   }
 
   def main(args: Array[String])
