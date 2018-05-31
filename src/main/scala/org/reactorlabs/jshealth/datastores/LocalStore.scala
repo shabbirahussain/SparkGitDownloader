@@ -69,19 +69,7 @@ class LocalStore extends DataStore {
       })
   }
 
-  /**
-    * Sets up the database schema.
-    */
-  private def setupDatabase()
-  : Unit = {
-    val sql = Source
-      .fromInputStream(this.getClass.getClassLoader.getResourceAsStream(mySqlSetupPath))
-      .getLines()
-      .mkString("\n")
-      .split(";")
 
-    execInBatch(sql, autoCommit = true)
-  }
   // ================ API Methods ===================
 
   override def markRepoCompleted(repo: RDD[(String, String)], token: Long)
@@ -141,13 +129,27 @@ class LocalStore extends DataStore {
   }
   override def storeProjectsQueue(projects: RDD[(String, String)])
   : Unit = {
-    setupDatabase() // Drop and create new queue.
+    // Setup the schema before loading
+    execInBatch(Source
+        .fromInputStream(this.getClass.getClassLoader.getResourceAsStream(mySqlSetupPathB4))
+        .getLines()
+        .mkString("\n")
+        .split(";")
+      , autoCommit = true)
 
     execInBatch(projects
       .map(row =>
         """INSERT IGNORE INTO REPOS_QUEUE(REPO_OWNER, REPOSITORY) VALUES ('%s', '%s');"""
             .stripMargin.format(row._1, escapeSql(row._2))
       ), autoCommit = true)
+
+    // Setup the schema after loading
+    execInBatch(Source
+      .fromInputStream(this.getClass.getClassLoader.getResourceAsStream(mySqlSetupPathAfter))
+      .getLines()
+      .mkString("\n")
+      .split(";"), autoCommit = true)
+
   }
 
   override def getExistingHashes()

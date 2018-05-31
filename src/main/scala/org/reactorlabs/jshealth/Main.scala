@@ -68,7 +68,8 @@ object Main extends Serializable {
         "isolationLevel" -> "READ_COMMITTED"
       ))
   }
-  val mySqlSetupPath: String = prop.getProperty("ds.mysql.setup.path")
+  val mySqlSetupPathB4: String = prop.getProperty("ds.mysql.before.setup.path")
+  val mySqlSetupPathAfter: String = prop.getProperty("ds.mysql.after.setup.path")
   val fileStorePath: String  = prop.getProperty("ds.file.store.path")
   val ds: DataStore = new LocalStore()
 
