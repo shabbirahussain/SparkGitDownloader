@@ -43,8 +43,9 @@ ORDER BY 2 DESC) UNION ALL
       WHEN (RESULT LIKE '%cannot open git-upload-pack%')   THEN 'cannot open git-upload-pack'
       WHEN (RESULT LIKE '%git-upload-pack not permitted%') THEN 'git-upload-pack not permitted'
       WHEN (RESULT LIKE '%authentication not supported%')  THEN 'authentication not supported'
-      WHEN (RESULT LIKE '%Duplicate stages not allowed:%') THEN 'Duplicate stages not allowed:'
+      WHEN (RESULT LIKE '%Duplicate stages not allowed:%') THEN 'Duplicate stages not allowed'
       WHEN (RESULT LIKE '%File name too long%')            THEN 'File name too long'
+      WHEN (RESULT LIKE '%Nul character not allowed:%')    THEN 'Nul character not allowed'
       ELSE RESULT
     END,
 	COUNT(*)

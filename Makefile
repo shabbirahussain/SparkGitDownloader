@@ -52,6 +52,7 @@ build: copy_resources
 
 run:
 	${SPARK_BIN_PATH}spark-submit \
+		--master local[*] \
 		--files "${EXTRA_RESOURCES_PATH}conf/config-defaults.properties" \
 		--conf "spark.driver.extraJavaOptions=-Dlog4j.configuration='file:${PWD}${EXTRA_RESOURCES_PATH}conf/log4j.properties'" \
 	 	--jars ${FULL_RUNTIME_JARS} \
@@ -93,6 +94,7 @@ setup:
 
 ss:
 	spark-shell --driver-memory 5G --executor-memory 5G \
+	--master local[*] \
 	--jars=${FULL_RUNTIME_JARS} \
 	--conf spark.scheduler.mode=FAIR \
 	--conf spark.checkpoint.compress=true

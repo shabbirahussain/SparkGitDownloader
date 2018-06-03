@@ -1,6 +1,8 @@
 package org.reactorlabs.jshealth.git
 
 import java.io.File
+import java.util.concurrent.Executors
+
 import org.apache.log4j.Level
 import org.reactorlabs.jshealth.Main._
 import org.reactorlabs.jshealth.datastores.Keychain
@@ -13,6 +15,7 @@ import org.apache.hadoop.fs.Path
 import org.eclipse.jgit.api.Git
 
 import scala.collection.JavaConversions._
+import scala.concurrent.ExecutionContext
 import scala.util.{Failure, Try}
 /**
   * @author shabbirahussain
@@ -44,6 +47,7 @@ object Main {
       workingGitDir = gitPath.toPath.toAbsolutePath.toString,
       cloningTimeout
   )
+  private val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(nWorkers))
 
   /**
     * @param git is the cloned git repo object to fetch details from.
@@ -62,8 +66,8 @@ object Main {
     * @return A single element seq of Git object if successful.
     */
   private def tryCloneRepo(owner: String, repo: String, token: Long)
-  : Seq[Git] = {
-    Try(gitClient.gitCloneRepo(owner, repo))
+  = {
+    Try(gitClient.gitCloneRepo(owner = owner, repo = repo))
     match {
       case _ @ Failure(e) =>
         ds.markRepoError(owner, repo, err = e.getMessage, token = token)
@@ -127,19 +131,15 @@ object Main {
     logger.log(Level.INFO, "Initializing ...")
     val data = links
       .repartition(crawlBatchSize / groupSize)
-      .mapPartitions(_.grouped(groupSize), preservesPartitioning = true)
-      .filter(_=> {
-        fs.delete(new Path(gitPath.toURI), true)
-        true
-      })  // Cleanup previous clones
-      .filter(_=> {
-        logger.log(Level.INFO,  "\n\n\nLoading next batch ...")
-        true
-      })  // Progress monitor stage
-      .flatMap(batch=> {
-        ExecutionService(batch.map(x => () => tryCloneRepo(x._1, x._2, token)), nWorkers).flatten
+      .flatMap(x=> tryCloneRepo(x._1, x._2, token))// Clone git repo
+      .flatMap(git=> {
+        val data = tryGetRepoFilesHistory(git, token).toIterator // Extract data from it
+        data.map(y=> {
+          if(data.isEmpty)
+            fs.delete(new Path(git.getRepository.getDirectory.getParentFile.toURI), true)
+          y
+        })
       })
-      .flatMap(x=> tryGetRepoFilesHistory(x, token))
       .filter(fht=> metaExtns.isEmpty || metaExtns.contains(scala.reflect.io.File(fht.gitPath).extension))
       .map(x=> (x.owner, x.repo, x.gitPath, x.fileHash, x.commitTime, x.commitId))
       .toDF(Schemas.asMap(Schemas.FILE_METADATA)._3:_*)
@@ -159,92 +159,7 @@ object Main {
   : Boolean = {
     throw new RuntimeException("Not Implemented Yet")
 
-//    logger.log(Level.INFO, "\tChecking out links ...")
-//    val (links, token) = ds.checkoutReposToCrawl(crawlBatchSize)
-//    links.persist(StorageLevel.DISK_ONLY)
-//    if (links.isEmpty()) return false
-//
-//    logger.log(Level.INFO, "\tInitializing ...")
-//    val rawData: RDD[(Schemas.Value, Any)] = links
-//      .repartition(crawlBatchSize / groupSize)
-//      .mapPartitions(_.grouped(groupSize), preservesPartitioning = true)
-//      .filter(_=> {
-//        fs.delete(new Path(gitPath.toURI), true)
-//        true
-//      })  // Cleanup previous clones
-//      .filter(_=> {
-//        val msg = "\n" + new Date() + "\tLoading next batch ..."
-//        println(msg)
-//        logger.log(Level.INFO, msg)
-//        true
-//      })  // Progress monitor map stage
-//      .flatMap(_
-//        .flatMap(x=> tryCloneRepo(x._1, x._2, x._3, token)) // Clone the git repo batch
-//        .flatMap(git=> {
-//          val commits = tryGetRepoFilesHistory(git, token)
-//            .filter(fht=> metaExtns.isEmpty || metaExtns.contains(File(fht.gitPath).extension))
-//
-//          val fileMetadata = commits
-//            .map(x=> (Schemas.FILE_METADATA, (x.owner, x.repo, x.gitPath, x.fileHash, x.commitTime, x.commitId)))
-//
-//          val contents = commits
-//            .filter(_.fileHash != null)
-//            .filter(fht=> contentsExtn.contains(File(fht.gitPath).extension))
-//            .filter(fht=> !downloaded.contains(fht.fileHash))
-//            .filter(fht=> {
-//              downloaded.+(fht.fileHash -> Unit)
-//              true
-//            }) // Update local hash map of downloaded contents
-//            .flatMap(fht=> tryGetFileContents(fht.fileHash, git, token))
-//            .map(x=> (Schemas.CONTENTS, (x._1, escapeString(x._2))))
-//
-//          val commitMsg = commits
-//            .map(x=> (Schemas.COMMIT_MESSAGES, (x.commitId, x.author, escapeString(x.longMsg))))
-//            .distinct
-//
-//          var ret: Seq[(Schemas.Value, Any)] = Seq.empty
-//          if(genDataFor.contains(Schemas.FILE_METADATA))   ret = ret.union(fileMetadata)
-//          if(genDataFor.contains(Schemas.CONTENTS))        ret = ret.union(contents)
-//          if(genDataFor.contains(Schemas.COMMIT_MESSAGES)) ret = ret.union(commitMsg)
-//          ret
-//        })
-//      .toIterator) // Explode data into splits
-//      .persist(StorageLevel.MEMORY_AND_DISK_SER_2)
-//
-////    if(genDataFor.contains(Schemas.FILE_METADATA)){
-////      val data = rawData
-////        .filter(_._1 == Schemas.FILE_METADATA)
-////        .map(_._2.asInstanceOf[(String, String, String, String, Long, String)])
-////        .toDF(Schemas.asMap(Schemas.FILE_METADATA)._3:_*)
-////      ds.storeRecords(data, folder = "%s/%s".format(token.toString, Schemas.FILE_METADATA))
-////    }
-////    if(genDataFor.contains(Schemas.COMMIT_MESSAGES)){
-////      val data = rawData
-////        .filter(_._1 == Schemas.COMMIT_MESSAGES)
-////        .map(_._2.asInstanceOf[(String, String, String)])
-////        .toDF(Schemas.asMap(Schemas.COMMIT_MESSAGES)._3:_*)
-////      ds.storeRecords(data, folder = "%s/%s".format(token.toString, Schemas.COMMIT_MESSAGES))
-////    }
-////    if(genDataFor.contains(Schemas.CONTENTS)){
-////      val data = rawData
-////        .filter(_._1 == Schemas.CONTENTS)
-////        .map(_._2.asInstanceOf[(String, String)])
-////        .toDF(Schemas.asMap(Schemas.CONTENTS)._3:_*)
-////        .dropDuplicates(Schemas.asMap(Schemas.CONTENTS)._2)
-////      ds.storeRecords(data, folder = "%s/%s".format(token.toString, Schemas.CONTENTS))
-////
-////      val data2 = rawData
-////        .filter(_._1 == Schemas.CONTENTS)
-////        .map(_._2.asInstanceOf[(String, String)]._1)
-////        .toDF(Schemas.asMap(Schemas.INDEX)._3:_*)
-////        .dropDuplicates(Schemas.asMap(Schemas.INDEX)._2)
-////      ds.storeRecords(data2, folder = "%s/%s".format(token.toString, Schemas.INDEX))
-////    }
-//
-//    ds.markRepoCompleted(links.map(x=> (x._1, x._2, x._3)), token)
-//    links.unpersist(blocking = false)
-//    rawData.unpersist(blocking = true)
-    true
+    false
   }
 
   def main(args: Array[String])

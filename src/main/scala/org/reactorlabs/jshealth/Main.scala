@@ -23,7 +23,6 @@ object Main extends Serializable {
   val spark: SparkSession = SparkSession
     .builder()
     .appName("ReactorLabs Git Miner")
-    .master("local")
     .getOrCreate()
 
   val sc: SparkContext = spark.sparkContext

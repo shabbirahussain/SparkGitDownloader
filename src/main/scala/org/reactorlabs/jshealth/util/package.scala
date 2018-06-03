@@ -5,7 +5,7 @@ import java.nio.file.Paths
 import java.util.concurrent.Executors
 
 import scala.collection.mutable
-import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.concurrent.{Await, ExecutionContext, ExecutionContextExecutor, Future}
 import scala.concurrent.duration.{Duration, FiniteDuration}
 import scala.reflect.runtime.universe._
 import scala.util.Try
@@ -14,11 +14,9 @@ import scala.util.Try
   * @author shabbirahussain
   */
 package object util {
-  case class ExecutionService[T](solvers: Iterable[() => T], nThreads: Int = 1)
+  case class ExecutionService[T](solvers: Iterable[() => T], ec: ExecutionContextExecutor)
     extends Iterator[T] {
     private case class Result(f: Future[Result], r: T)
-    private val ex = Executors.newFixedThreadPool(nThreads)
-    private val ec = ExecutionContext.fromExecutor(ex)
     private val futureResults = mutable.Set[Future[Result]]()
     private def submitJob(s: () => T): Future[Result] = {
       lazy val fr: Future[Result] = Future{Result(fr, s())}(ec)
@@ -27,11 +25,8 @@ package object util {
     }
     solvers.map(submitJob)
 
-    override def hasNext(): Boolean = {
-      if (futureResults.isEmpty)
-        ex.shutdown()
-      futureResults.nonEmpty
-    }
+    override def hasNext(): Boolean = futureResults.nonEmpty
+
     override def next(): T = {
       val result = Await.result(Future.firstCompletedOf(futureResults.toSeq)(ec), Duration.Inf)
       futureResults -= result.f
