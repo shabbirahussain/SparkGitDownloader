@@ -13,14 +13,16 @@ KEY_BLOCK_SIZE=8;
 ALTER TABLE REPOS_QUEUE ADD PRIMARY KEY (REPO_OWNER, REPOSITORY);
 
 CREATE OR REPLACE VIEW PMON AS
+(SELECT 'TIME'AS STATUS, NOW() AS DETAILS, 0 AS 'COUNT(*)') UNION ALL
 (SELECT
   CASE
     WHEN(RESULT IS NOT NULL) THEN 'ERROR'
 	WHEN(COMPLETED=1) THEN 'FINISHED'
 	WHEN(CHECKOUT_ID IS NOT NULL) THEN 'IN_PROGRESS'
-	ELSE 'PENDING' END  AS STATUS,
-	''  AS DETAILS,
-	COUNT(*)
+	ELSE 'PENDING'
+  END AS STATUS,
+  ''  AS DETAILS,
+  COUNT(*)
 FROM
     REPOS_QUEUE
 GROUP BY 1, 2) UNION ALL
@@ -42,6 +44,7 @@ ORDER BY 2 DESC) UNION ALL
       WHEN (RESULT LIKE '%git-upload-pack not permitted%') THEN 'git-upload-pack not permitted'
       WHEN (RESULT LIKE '%authentication not supported%')  THEN 'authentication not supported'
       WHEN (RESULT LIKE '%Duplicate stages not allowed:%') THEN 'Duplicate stages not allowed:'
+      WHEN (RESULT LIKE '%File name too long%')            THEN 'File name too long'
       ELSE RESULT
     END,
 	COUNT(*)
@@ -53,7 +56,6 @@ ORDER BY 3 DESC);
 
 SELECT * FROM PMON;
 
-UPDATE REPOS_QUEUE SET RESULT=null, COMPLETED=0, CHECKOUT_ID=null WHERE RESULT LIKE '%No such file or directory%';
 UPDATE REPOS_QUEUE SET RESULT=null, COMPLETED=0, CHECKOUT_ID=null WHERE RESULT LIKE '%authentication not supported%';
 UPDATE REPOS_QUEUE SET RESULT=null, COMPLETED=0, CHECKOUT_ID=null WHERE RESULT LIKE '%503 Service Unavailable%';
 UPDATE REPOS_QUEUE SET RESULT=null, COMPLETED=0, CHECKOUT_ID=null WHERE RESULT LIKE '%No such file or directory%';
