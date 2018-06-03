@@ -54,9 +54,8 @@ run:
 	${SPARK_BIN_PATH}spark-submit \
 		--files "${EXTRA_RESOURCES_PATH}conf/config-defaults.properties" \
 		--conf "spark.driver.extraJavaOptions=-Dlog4j.configuration='file:${PWD}${EXTRA_RESOURCES_PATH}conf/log4j.properties'" \
-		--driver-memory 8g --executor-memory 8G \
 	 	--jars ${FULL_RUNTIME_JARS} \
-    	--class org.reactorlabs.jshealth.Main "${JAR_NAME}" "${INPUT_COMMAND}"
+    	--class org.reactorlabs.jshealth.Main "${JAR_NAME}" "${INPUT_COMMAND}" &
 
 install_deps:
 	mvn install dependency:copy-dependencies
@@ -131,4 +130,4 @@ prl_ssh:
 	ssh ${PRL_MACHINE}
 
 prl_fetch:
-	scp -r ${PRL_MACHINE}:/tmp/hadoop-hshabbir/ght/ /tmp/hadoop-shabbirhussain/ght/
+	scp -r ${PRL_MACHINE}:/tmp/hadoop-hshabbir/ght/ /tmp/hadoop-shabbirhussain/

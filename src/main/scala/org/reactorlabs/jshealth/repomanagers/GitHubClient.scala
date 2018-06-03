@@ -107,7 +107,7 @@ class GitHubClient(keychain: Keychain, workingGitDir: String, cloningTimeout: In
     val res = allCommits.reverse
       // Progress monitor
       .zipWithIndex.map(x=> {
-          if (x._2 % 10 == 0)
+          if (x._2 % 100 == 0)
             showStatus(
               Map(3-> "%s/%s"  .format(owner, repo)
                 , 4-> "%2.2f%%".format((x._2 + 1)*100.0/cnt)

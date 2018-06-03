@@ -1,6 +1,6 @@
 package org.reactorlabs.jshealth.datastores
 
-import java.sql.{Connection, DriverManager}
+import java.sql.{Connection, DriverManager, ResultSet}
 
 import org.apache.spark.rdd.RDD
 import org.reactorlabs.jshealth.Main._
@@ -9,6 +9,7 @@ import org.apache.commons.lang.StringEscapeUtils.escapeSql
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.hadoop.io.compress._
 import org.apache.spark.sql.{DataFrame, SaveMode}
+
 import scala.io.Source
 import scala.util.{Failure, Try}
 
@@ -22,6 +23,16 @@ class LocalStore extends DataStore {
   getNewDBConnection.close()
 
   import sqlContext.implicits._
+  implicit class ResultSetStream(resultSet: ResultSet) extends Iterator[ResultSet]{
+//    def toStream: Stream[ResultSet] = {
+//      new Iterator[ResultSet] {
+//        def hasNext: Boolean =
+//        def next(): ResultSet = resultSet
+//      }.toStream
+//    }
+    override def hasNext: Boolean = resultSet.next()
+    override def next(): ResultSet = resultSet
+  }
 
   private def getNewDBConnection: Connection = {
     val url      = dbConnOptions.value("url")
@@ -69,7 +80,6 @@ class LocalStore extends DataStore {
       })
   }
 
-
   // ================ API Methods ===================
 
   override def markRepoCompleted(repo: RDD[(String, String)], token: Long)
@@ -91,40 +101,39 @@ class LocalStore extends DataStore {
         """
           |UPDATE REPOS_QUEUE
           |   SET RESULT      = '%s',
-          |       CHECKOUT_ID = %d
+          |       CHECKOUT_ID = null
           |WHERE REPO_OWNER = '%s'
           |  AND REPOSITORY = '%s'
-        """.stripMargin.format(escapeSql(err), token, escapeSql(owner), escapeSql(repo))
+        """.stripMargin.format(escapeSql(err), escapeSql(owner), escapeSql(repo))
       ), autoCommit = true)
   }
   override def checkoutReposToCrawl(limit: Int = 1000)
   : (RDD[(String, String)], Long) = {
-    val rdd = sqlContext
-      .read
-      .format("jdbc")
-      .options(dbConnOptions.value)
-      .option("dbtable", "REPOS_QUEUE")
-      .load()
-      .select($"REPO_OWNER", $"REPOSITORY")
-      .filter($"COMPLETED" === false)
-      .filter($"CHECKOUT_ID".isNull)
-      .limit(limit)
-      .rdd
-      .map(x=> (x.get(0).toString, x.get(1).toString))
-
     val token = System.currentTimeMillis()
+    val sql = """SELECT REPO_OWNER, REPOSITORY, CHECKOUT_ID
+                |    FROM REPOS_QUEUE
+                |    WHERE COMPLETED = 0
+                |      AND RESULT IS NULL
+                |      AND CHECKOUT_ID IS NULL
+                |    LIMIT %d FOR UPDATE """
+      .stripMargin.format(limit)
 
-    // Set checkout timestamp
-    execInBatch(
-      rdd.map(row =>{
-            """
-              |UPDATE REPOS_QUEUE
-              |   SET CHECKOUT_ID = %d
-              |WHERE REPO_OWNER   = '%s'
-              |  AND REPOSITORY   = '%s'
-            """.stripMargin.format(token, escapeSql(row._1), escapeSql(row._2))
-        }), batchSize = limit, autoCommit = true
-    )
+    val connection = getNewDBConnection
+    connection.setAutoCommit(false)
+    val statement  = connection.createStatement(ResultSet.TYPE_SCROLL_SENSITIVE, ResultSet.CONCUR_UPDATABLE)
+
+    val rows = statement.executeQuery(sql)
+      .map(x=> {
+        x.updateString("CHECKOUT_ID", token.toString)
+        x.updateRow()
+        (x.getString("REPO_OWNER"), x.getString("REPOSITORY"))
+      })
+      .toSeq
+    rows.count(_=> true)
+    val rdd = sc.parallelize(rows)
+
+    connection.commit()
+    connection.close()
     (rdd, token)
   }
   override def storeProjectsQueue(projects: RDD[(String, String)])

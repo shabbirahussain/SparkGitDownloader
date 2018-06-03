@@ -1,15 +1,6 @@
 package org.reactorlabs.jshealth.git
 
 import java.io.File
-import java.nio.file.Paths
-import java.util.Date
-import java.util.concurrent.{Executors, TimeUnit}
-
-import akka.actor.ActorSystem
-import akka.stream.ActorAttributes.supervisionStrategy
-import akka.stream.{ActorMaterializer, OverflowStrategy, Supervision}
-import akka.stream.scaladsl.{Sink, Source}
-import com.typesafe.config.ConfigFactory
 import org.apache.log4j.Level
 import org.reactorlabs.jshealth.Main._
 import org.reactorlabs.jshealth.datastores.Keychain
@@ -17,17 +8,12 @@ import org.reactorlabs.jshealth.repomanagers.{GitHubClient, RepoManager}
 import org.reactorlabs.jshealth.util._
 import org.apache.spark.storage.StorageLevel
 import org.eclipse.jgit.api.errors.{InvalidRemoteException, TransportException}
-import org.eclipse.jgit.errors.NoRemoteRepositoryException
 import org.reactorlabs.jshealth.models.{FileHashTuple, Schemas}
-import org.reactorlabs.jshealth.util.escapeString
 import org.apache.hadoop.fs.Path
-import org.apache.spark.rdd.RDD
 import org.eclipse.jgit.api.Git
 
 import scala.collection.JavaConversions._
-import scala.concurrent.{Await, ExecutionContext, Future}
-import scala.util.{Failure, Random, Success, Try}
-import scala.concurrent.duration._
+import scala.util.{Failure, Try}
 /**
   * @author shabbirahussain
   */
@@ -47,30 +33,17 @@ object Main {
     .toSet
     .map(Schemas.withName)
   private val gitPath    = {
-    val hadoopDir = sc.hadoopConfiguration.get("hadoop.tmp.dir", "/tmp")
-    new File( "%s/repos/%d".format(hadoopDir, System.currentTimeMillis()))
+    var cloningTempDir = prop.getProperty("git.downloader.cloning.temp.dir")
+    if (cloningTempDir == null)
+      cloningTempDir = sc.hadoopConfiguration.get("hadoop.tmp.dir", "/tmp") + "/repos/"
+    new File( "%s%d".format(cloningTempDir, System.currentTimeMillis()))
   }
-  private val cloningTimeout  = prop.getProperty("git.dowloader.cloning.timeout.sec").toInt
+  private val cloningTimeout  = prop.getProperty("git.downloader.cloning.timeout.sec").toInt
   private val gitClient : RepoManager = new GitHubClient(
       keychain   = keychain,
       workingGitDir = gitPath.toPath.toAbsolutePath.toString,
       cloningTimeout
   )
-
-//  val config = ConfigFactory.load()
-//  implicit val system: ActorSystem = ActorSystem.create("MyAkka", config.getConfig("configuration"))
-//  implicit val materializer: ActorMaterializer = ActorMaterializer()
-//  implicit val ec = system.dispatchers.lookup("default-dispatcher")
-//  private val decider: Supervision.Decider = {
-//    case _: NullPointerException => Supervision.Stop
-//    case _: InvalidRemoteException => Supervision.Resume
-//    case e: TransportException => {
-//      //      if (e.getMessage.contains("400 Bad Request")) Supervision.Resume
-//      //      else Supervision.Restart
-//      Supervision.Resume
-//    }
-//    case _ => Supervision.Resume
-//  }
 
   /**
     * @param git is the cloned git repo object to fetch details from.
@@ -93,7 +66,6 @@ object Main {
     Try(gitClient.gitCloneRepo(owner, repo))
     match {
       case _ @ Failure(e) =>
-        logger.log(Level.ERROR, "Cloning Error [https://github.com/%s/%s]".format(owner, repo) + e.getMessage)
         ds.markRepoError(owner, repo, err = e.getMessage, token = token)
         e match {
           case _: TransportException | _: InvalidRemoteException =>
@@ -116,7 +88,6 @@ object Main {
     Try(gitClient.getRepoFilesHistory(git))
     match {
       case _@Failure(e) =>
-        logger.log(Level.ERROR, e.getMessage)
         ds.markRepoError(owner, repo, err = e.getMessage, token = token)
         Seq.empty
       case success@_ => success.get
@@ -136,7 +107,6 @@ object Main {
     Try((objectId, new String(gitClient.getFileContents(git, objectId),"UTF-8")))
     match {
       case _ @ Failure(e) =>
-        logger.log(Level.ERROR, e.getMessage)
         ds.markRepoError(owner, repo, err = e.getMessage, token = token)
         Seq.empty
       case success @ _ => Seq(success.get)
@@ -149,7 +119,7 @@ object Main {
     */
   def crawlFileHistory()
   : Boolean = {
-    logger.log(Level.INFO, "Checking out links ...")
+    logger.log(Level.INFO, "\n\n\nChecking out links ...")
     val (links, token) = ds.checkoutReposToCrawl(crawlBatchSize)
     links.persist(StorageLevel.DISK_ONLY)
     if (links.isEmpty()) return false
@@ -167,13 +137,14 @@ object Main {
         true
       })  // Progress monitor stage
       .flatMap(batch=> {
-        val gits = ExecutionService(batch.map(x=>()=>tryCloneRepo(x._1, x._2, token)), nWorkers).flatten
-        gits.flatMap(x=> tryGetRepoFilesHistory(x, token))
+        ExecutionService(batch.map(x => () => tryCloneRepo(x._1, x._2, token)), nWorkers).flatten
       })
+      .flatMap(x=> tryGetRepoFilesHistory(x, token))
       .filter(fht=> metaExtns.isEmpty || metaExtns.contains(scala.reflect.io.File(fht.gitPath).extension))
       .map(x=> (x.owner, x.repo, x.gitPath, x.fileHash, x.commitTime, x.commitId))
       .toDF(Schemas.asMap(Schemas.FILE_METADATA)._3:_*)
     ds.storeRecords(data, folder = "%d/%s".format(token, Schemas.FILE_METADATA))
+    fs.delete(new Path(gitPath.toURI), true)
 
     ds.markRepoCompleted(links.map(x=> (x._1, x._2)), token)
     links.unpersist(blocking = false)
@@ -282,14 +253,8 @@ object Main {
     logger.log(Level.DEBUG, "Cloning repos in [%s]".format(gitPath.toPath.toAbsolutePath))
 
     var continue = false
-    var ctr: Long = 0
     do{
       continue = crawlFileHistory()
-//      ctr += 1
-//      if (ctr % consolFreq == 0){
-//        logger.log(Level.INFO, "\tConsolidating ...")
-//        ds.consolidateData(genDataFor)
-//      }
     } while(continue)
   }
 }

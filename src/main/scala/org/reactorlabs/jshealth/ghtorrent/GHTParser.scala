@@ -25,7 +25,7 @@ class GHTParser(languages:Set[Languages.Value])
         .parse(line, CSVFormat.RFC4180)
         .iterator().next()
 
-      val projUrl   = record.get(1).substring(29).split("/")
+      val projUrl   = record.get(1).substring(29).split("/").map(_.trim)
       val projLang  = Languages.withName(record.get(5))
       val isDeleted = record.get(8).toInt == 1
       val isForked  = record.get(7) != "\\N"
