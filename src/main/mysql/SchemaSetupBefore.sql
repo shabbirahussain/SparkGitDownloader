@@ -46,7 +46,8 @@ ORDER BY 2 DESC) UNION ALL
       WHEN (RESULT LIKE '%Duplicate stages not allowed:%') THEN 'Duplicate stages not allowed'
       WHEN (RESULT LIKE '%File name too long%')            THEN 'File name too long'
       WHEN (RESULT LIKE '%Nul character not allowed:%')    THEN 'Nul character not allowed'
-      ELSE RESULT
+      WHEN (RESULT LIKE '%No space left on device%')       THEN 'No space left on device'
+      ELSE SUBSTRING(RESULT, 1, 50)
     END,
 	COUNT(*)
 FROM
@@ -59,10 +60,15 @@ SELECT * FROM PMON;
 
 UPDATE REPOS_QUEUE SET RESULT=null, COMPLETED=0, CHECKOUT_ID=null WHERE RESULT LIKE '%authentication not supported%';
 UPDATE REPOS_QUEUE SET RESULT=null, COMPLETED=0, CHECKOUT_ID=null WHERE RESULT LIKE '%503 Service Unavailable%';
+UPDATE REPOS_QUEUE SET RESULT=null, COMPLETED=0, CHECKOUT_ID=null WHERE RESULT LIKE '%SSL peer shut down incorrectly%';
 UPDATE REPOS_QUEUE SET RESULT=null, COMPLETED=0, CHECKOUT_ID=null WHERE RESULT LIKE '%No such file or directory%';
 UPDATE REPOS_QUEUE SET RESULT=null, COMPLETED=0, CHECKOUT_ID=null WHERE RESULT LIKE '%Shutdown in progress%';
 UPDATE REPOS_QUEUE SET RESULT=null, COMPLETED=0, CHECKOUT_ID=null WHERE RESULT LIKE '%Socket%closed%';
+UPDATE REPOS_QUEUE SET RESULT=null, COMPLETED=0, CHECKOUT_ID=null WHERE RESULT LIKE '%No space left on device%';
+UPDATE REPOS_QUEUE SET RESULT=null, COMPLETED=0, CHECKOUT_ID=null WHERE RESULT LIKE '%Read timed out after 120,000 ms%';
 UPDATE REPOS_QUEUE SET RESULT=null, COMPLETED=0, CHECKOUT_ID=null WHERE RESULT LIKE '%SSL peer shut down incorrectly%';
 UPDATE REPOS_QUEUE SET RESULT=null, COMPLETED=0, CHECKOUT_ID=null WHERE RESULT LIKE '%git-upload-pack not permitted%';
-UPDATE REPOS_QUEUE SET RESULT=null, COMPLETED=0, CHECKOUT_ID=null WHERE RESULT LIKE '%Read timed out after 60,000 ms%';
+
+
 UPDATE REPOS_QUEUE SET CHECKOUT_ID=null WHERE COMPLETED=0;
+UPDATE REPOS_QUEUE SET CHECKOUT_ID=null WHERE COMPLETED=0 AND CHECKOUT_ID NOT IN (1528559497683);

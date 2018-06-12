@@ -41,9 +41,9 @@ class GitHubClient(keychain: Keychain, workingGitDir: String, cloningTimeout: In
   private var reset    : Long     = 0
   private var isValid  : Boolean  = true
 
-  private val columnWidths = Seq("Cloning:", "%-20.20s", "Processing:", "%-20.20s", "%8.8s", "%5s")
+  private val columnWidths = Seq("\t"*10 + ":", "%-20.20s", "%8.8s", "%5s")
   private def showStatus(values: Map[Int, String]): Unit = {
-    val msg = new Date() + " " + columnWidths
+    val msg = columnWidths
       .zipWithIndex
       .map(x=> x._1.format(values.getOrElse(x._2, "")))
       .mkString(" ")
@@ -51,23 +51,13 @@ class GitHubClient(keychain: Keychain, workingGitDir: String, cloningTimeout: In
   }
 
   private def getAllCommits(git: Git): Seq[RevCommit] = {
-    Try(git.log().call().asScala.toSeq)
-    match {
-      case _ @ Failure(e) =>
-      e match{
-        case e: NoHeadException => logger.log(Level.WARN, "Empty Repo")
-        case e: Exception =>       logger.log(Level.ERROR, e.getMessage)
-      }
-      Seq.empty
-      case success @ _ => success.get
-    }
+    git.log().call().asScala.toSeq
   }
 
   override def gitCloneRepo(owner: String, repo: String): Git = {
     var res: Git = null
     val workinDir = Paths.get("%s/%s/%s".format(workingGitDir, owner, repo)).toFile
 
-    showStatus(Map(1-> "%s/%s".format(owner, repo), 3-> "\n"))
     apiKey = keychain.getNextKey(apiKey, remaining, reset, isValid)
     res = Git.cloneRepository()
         .setDirectory(workinDir)
@@ -107,16 +97,11 @@ class GitHubClient(keychain: Keychain, workingGitDir: String, cloningTimeout: In
     val res = allCommits.reverse
       // Progress monitor
       .zipWithIndex.map(x=> {
-          if (x._2 % 100 == 0)
+          if (x._2 % 100 == 0 || x._2 == tCnt)
             showStatus(
-              Map(3-> "%s/%s"  .format(owner, repo)
-                , 4-> "%2.2f%%".format((x._2 + 1)*100.0/cnt)
-                , 5-> "of %7d" .format(cnt)))
-          else if ( x._2 == tCnt)
-            showStatus(
-              Map(3-> "%s/%s"  .format(owner, repo)
-                , 4-> "%2.2f%%".format((x._2 + 1)*100.0/cnt)
-                , 5-> "of %7d\n" .format(cnt)))
+              Map(1-> "%s/%s"  .format(owner, repo)
+                , 2-> "%2.2f%%".format((x._2 + 1)*100.0/cnt)
+                , 3-> "of %7d" .format(cnt)))
           x._1
       })
       .flatMap(x=> {

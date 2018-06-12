@@ -26,11 +26,9 @@ object Main {
   private val metaExtns       = prop.getProperty("git.download.metadata.extensions").toLowerCase.split(",").map(_.trim).toSet
   private val contentsExtn    = prop.getProperty("git.download.contents.extensions").toLowerCase.split(",").map(_.trim).toSet
   private val keychain        = new Keychain(prop.getProperty("git.api.keys.path"))
-  private val crawlBatchSize  = prop.getProperty("git.crawl.batch.size").toInt
-  private val groupSize       = prop.getProperty("git.downloader.group.size").toInt
-  private val nWorkers        = prop.getProperty("git.downloader.numworkers").toInt
-  private val clonedRepoBuff  = prop.getProperty("git.downloader.repo.buffer").toInt
-  private val consolFreq      = prop.getProperty("git.downloader.consolidation.frequency").toInt
+  private val crawlBatchSize  = prop.getProperty("git.downloader.crawl.batch.size").toInt
+//  private val nWorkers        = prop.getProperty("git.downloader.numworkers").toInt
+  private val partitionSize   = prop.getProperty("git.downloader.partition.size").toInt
   private val genDataFor      = prop.getProperty("git.generate.data.for")
     .toUpperCase.split(",").map(_.trim)
     .toSet
@@ -47,7 +45,7 @@ object Main {
       workingGitDir = gitPath.toPath.toAbsolutePath.toString,
       cloningTimeout
   )
-  private val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(nWorkers))
+//  private val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(nWorkers))
 
   /**
     * @param git is the cloned git repo object to fetch details from.
@@ -66,15 +64,11 @@ object Main {
     * @return A single element seq of Git object if successful.
     */
   private def tryCloneRepo(owner: String, repo: String, token: Long)
-  = {
+  : Seq[Git] = {
     Try(gitClient.gitCloneRepo(owner = owner, repo = repo))
     match {
       case _ @ Failure(e) =>
         ds.markRepoError(owner, repo, err = e.getMessage, token = token)
-        e match {
-          case _: TransportException | _: InvalidRemoteException =>
-          case e: Throwable => e.printStackTrace()
-        }
         Seq.empty
       case success @ _ => Seq(success.get)
     }
@@ -130,7 +124,7 @@ object Main {
 
     logger.log(Level.INFO, "Initializing ...")
     val data = links
-      .repartition(crawlBatchSize / groupSize)
+      .repartition(crawlBatchSize / partitionSize )
       .flatMap(x=> tryCloneRepo(x._1, x._2, token))// Clone git repo
       .flatMap(git=> {
         val data = tryGetRepoFilesHistory(git, token).toIterator // Extract data from it

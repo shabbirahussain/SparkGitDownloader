@@ -12,6 +12,8 @@ AWS_PEM_PATH=~/ssh.pem
 
 PRL_USER=hshabbir
 PRL_MACHINE=${PRL_USER}@prl1c
+PRL_DB_NAME=hshabbir_reactorlabs
+NUM_WORKERS=40
 
 # ------------------------------------
 # Do not edit! Local config variables.
@@ -52,7 +54,7 @@ build: copy_resources
 
 run:
 	${SPARK_BIN_PATH}spark-submit \
-		--master local[*] \
+		--master local[${NUM_WORKERS}] \
 		--files "${EXTRA_RESOURCES_PATH}conf/config-defaults.properties" \
 		--conf "spark.driver.extraJavaOptions=-Dlog4j.configuration='file:${PWD}${EXTRA_RESOURCES_PATH}conf/log4j.properties'" \
 	 	--jars ${FULL_RUNTIME_JARS} \
@@ -94,7 +96,7 @@ setup:
 
 ss:
 	spark-shell --driver-memory 5G --executor-memory 5G \
-	--master local[*] \
+	--master local[50] \
 	--jars=${FULL_RUNTIME_JARS} \
 	--conf spark.scheduler.mode=FAIR \
 	--conf spark.checkpoint.compress=true
@@ -133,3 +135,15 @@ prl_ssh:
 
 prl_fetch:
 	scp -r ${PRL_MACHINE}:/tmp/hadoop-hshabbir/ght/ /tmp/hadoop-shabbirhussain/
+
+prl_kill:
+	echo "ps auxf |grep '/home/hshabbir/Apps/jdk1.8.0_172/bin/java'|`awk '{ print "kill " $2 }'`"
+
+prl_reset:
+	rm -rf /mnt/ramdisk/hshabbir/repos/
+	tar -xf deployable.tar
+	cp target/bundle/resources/conf/config-prl.properties target/bundle/resources/conf/config-defaults.properties
+	mysql -p "${PRL_DB_NAME}" --execute='UPDATE REPOS_QUEUE SET CHECKOUT_ID=null WHERE COMPLETED=0;'
+
+pmon:
+	mysql -p "${PRL_DB_NAME}" --execute='SELECT * FROM PMON;'

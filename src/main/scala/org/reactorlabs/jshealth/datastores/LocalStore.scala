@@ -97,6 +97,8 @@ class LocalStore extends DataStore {
   }
   override def markRepoError(owner: String, repo: String, err: String, token: Long)
   : Unit = {
+    var errStr = escapeSql(err)
+    errStr = errStr.substring(0, math.min(errStr.length, 254))
     execInBatch(Seq(
         """
           |UPDATE REPOS_QUEUE
@@ -104,7 +106,7 @@ class LocalStore extends DataStore {
           |       CHECKOUT_ID = null
           |WHERE REPO_OWNER = '%s'
           |  AND REPOSITORY = '%s'
-        """.stripMargin.format(escapeSql(err), escapeSql(owner), escapeSql(repo))
+        """.stripMargin.format(errStr, escapeSql(owner), escapeSql(repo))
       ), autoCommit = true)
   }
   override def checkoutReposToCrawl(limit: Int = 1000)
