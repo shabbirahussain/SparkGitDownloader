@@ -157,6 +157,7 @@ object Main {
                   case _:java.util.NoSuchElementException => /*Do Nothing: As we couldn't use hasNext on iterator.*/
                   case _:java.util.concurrent.TimeoutException => errorMsg = Some(e.getMessage)
                 }
+                continue = false
                 None
               case success @ _ => Some(success.get)
             }
