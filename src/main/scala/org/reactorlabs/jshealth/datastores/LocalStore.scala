@@ -106,6 +106,7 @@ class LocalStore extends DataStore {
           |       CHECKOUT_ID = null
           |WHERE REPO_OWNER = '%s'
           |  AND REPOSITORY = '%s'
+          |  AND RESULT IS NULL
         """.stripMargin.format(errStr, escapeSql(owner), escapeSql(repo))
       ), autoCommit = true)
   }

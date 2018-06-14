@@ -27,6 +27,7 @@ import scala.util.{Failure, Try}
   *
   * @param keychain is the keychain enabling github authentication.
   * @param workingGitDir is the temporary directory to use for cloning.
+  * @param cloningTimeout is the max time in sec to timeout for connections of cloning.
   *
   * @author shabbirahussain
   */
@@ -41,7 +42,7 @@ class GitHubClient(keychain: Keychain, workingGitDir: String, cloningTimeout: In
   private var reset    : Long     = 0
   private var isValid  : Boolean  = true
 
-  private val columnWidths = Seq("\t"*10 + ":", "%-20.20s", "%8.8s", "%5s")
+  private val columnWidths = Seq("\t"*10 + ":", "%-30.30s", "%8.8s", "%5s")
   private def showStatus(values: Map[Int, String]): Unit = {
     val msg = columnWidths
       .zipWithIndex
@@ -50,13 +51,14 @@ class GitHubClient(keychain: Keychain, workingGitDir: String, cloningTimeout: In
     print("%s\r%s".format("\b" * msg.length, msg))
   }
 
-  private def getAllCommits(git: Git): Seq[RevCommit] = {
-    git.log().call().asScala.toSeq
+  private def getAllCommits(git: Git): Iterable[RevCommit] = {
+    git.log().call().asScala
   }
 
   override def gitCloneRepo(owner: String, repo: String): Git = {
     var res: Git = null
     val workinDir = Paths.get("%s/%s/%s".format(workingGitDir, owner, repo)).toFile
+    showStatus(Map(1-> "c: %s/%s\n"  .format(owner, repo)))
 
     apiKey = keychain.getNextKey(apiKey, remaining, reset, isValid)
     res = Git.cloneRepository()
@@ -76,7 +78,7 @@ class GitHubClient(keychain: Keychain, workingGitDir: String, cloningTimeout: In
   }
 
   override def getRepoFilesHistory(git: Git)
-  : Seq[FileHashTuple] = {
+  : Iterator[FileHashTuple] = {
     def getDiff(oldTreeIter: AbstractTreeIterator, newTreeIter: AbstractTreeIterator)
     : mutable.Buffer[DiffEntry] = {
       git.diff.setNewTree(newTreeIter).setOldTree(oldTreeIter).call().asScala
@@ -90,18 +92,20 @@ class GitHubClient(keychain: Keychain, workingGitDir: String, cloningTimeout: In
     var newTreeIter: CanonicalTreeParser  = new CanonicalTreeParser()
 
     // Process all commits
-    val allCommits = getAllCommits(git)
+    val allCommits = getAllCommits(git).toSeq
     val cnt = allCommits.length
     val tCnt = cnt - 1
 
-    val res = allCommits.reverse
+    val res = allCommits
+      .reverse
+      .toIterator
       // Progress monitor
       .zipWithIndex.map(x=> {
-          if (x._2 % 100 == 0 || x._2 == tCnt)
+          if (x._2 % 1 == 0 || x._2 == tCnt)
             showStatus(
               Map(1-> "%s/%s"  .format(owner, repo)
                 , 2-> "%2.2f%%".format((x._2 + 1)*100.0/cnt)
-                , 3-> "of %7d" .format(cnt)))
+                , 3-> "of %7d%s" .format(cnt, if(x._2 == tCnt) "\n" else "")))
           x._1
       })
       .flatMap(x=> {
@@ -135,8 +139,7 @@ class GitHubClient(keychain: Keychain, workingGitDir: String, cloningTimeout: In
               case _: MissingObjectException =>
               case _: JGitInternalException =>
             }
-            //logger.log(Level.WARN, e.getMessage)
-            Seq.empty
+            Iterator.empty
           case success@_ => success.get
         }
       })

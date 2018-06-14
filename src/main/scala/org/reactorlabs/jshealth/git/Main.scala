@@ -1,7 +1,8 @@
 package org.reactorlabs.jshealth.git
 
 import java.io.File
-import java.util.concurrent.Executors
+import java.lang.Throwable
+import java.util.concurrent.{Executors, TimeUnit}
 
 import org.apache.log4j.Level
 import org.reactorlabs.jshealth.Main._
@@ -15,8 +16,9 @@ import org.apache.hadoop.fs.Path
 import org.eclipse.jgit.api.Git
 
 import scala.collection.JavaConversions._
-import scala.concurrent.ExecutionContext
-import scala.util.{Failure, Try}
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.util.{Failure, Random, Success, Try}
 /**
   * @author shabbirahussain
   */
@@ -28,6 +30,7 @@ object Main {
   private val keychain        = new Keychain(prop.getProperty("git.api.keys.path"))
   private val crawlBatchSize  = prop.getProperty("git.downloader.crawl.batch.size").toInt
 //  private val nWorkers        = prop.getProperty("git.downloader.numworkers").toInt
+  private val processingTO = prop.getProperty("git.downloader.processing.timeout.sec").toLong
   private val partitionSize   = prop.getProperty("git.downloader.partition.size").toInt
   private val genDataFor      = prop.getProperty("git.generate.data.for")
     .toUpperCase.split(",").map(_.trim)
@@ -45,7 +48,12 @@ object Main {
       workingGitDir = gitPath.toPath.toAbsolutePath.toString,
       cloningTimeout
   )
+
+  private val cloningTimeoutDur = Duration.create(cloningTimeout, TimeUnit.SECONDS)
+  private val processingTODur = Duration.create(processingTO, TimeUnit.SECONDS)
+
 //  private val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(nWorkers))
+  import scala.concurrent.ExecutionContext.Implicits.global
 
   /**
     * @param git is the cloned git repo object to fetch details from.
@@ -64,13 +72,15 @@ object Main {
     * @return A single element seq of Git object if successful.
     */
   private def tryCloneRepo(owner: String, repo: String, token: Long)
-  : Seq[Git] = {
-    Try(gitClient.gitCloneRepo(owner = owner, repo = repo))
+  : Iterator[Git] = {
+    Try({
+      gitClient.gitCloneRepo(owner = owner, repo = repo)
+    })
     match {
       case _ @ Failure(e) =>
         ds.markRepoError(owner, repo, err = e.getMessage, token = token)
-        Seq.empty
-      case success @ _ => Seq(success.get)
+        Iterator.empty
+      case success @ _ => Iterator(success.get)
     }
   }
 
@@ -81,13 +91,15 @@ object Main {
     * @return A seq of FileHashTuples.
     */
   private def tryGetRepoFilesHistory(git: Git, token: Long)
-  : Seq[FileHashTuple] = {
+  : Iterator[FileHashTuple] = {
     val (owner, repo) = getRepoOwnership(git)
-    Try(gitClient.getRepoFilesHistory(git))
+    Try({
+      gitClient.getRepoFilesHistory(git)
+    })
     match {
       case _@Failure(e) =>
         ds.markRepoError(owner, repo, err = e.getMessage, token = token)
-        Seq.empty
+        Iterator.empty
       case success@_ => success.get
     }
   }
@@ -127,12 +139,39 @@ object Main {
       .repartition(crawlBatchSize / partitionSize )
       .flatMap(x=> tryCloneRepo(x._1, x._2, token))// Clone git repo
       .flatMap(git=> {
-        val data = tryGetRepoFilesHistory(git, token).toIterator // Extract data from it
-        data.map(y=> {
-          if(data.isEmpty)
-            fs.delete(new Path(git.getRepository.getDirectory.getParentFile.toURI), true)
-          y
-        })
+        import scala.concurrent.ExecutionContext.Implicits.global
+
+        val (owner, repo) = getRepoOwnership(git)
+        val limit = System.currentTimeMillis() + (processingTO * 1000)
+        val data = tryGetRepoFilesHistory(git, token) // Extract data from it
+
+        var continue = true
+        Stream.continually()
+          .takeWhile(_=> continue)
+          .map(_=>{
+            var errorMsg:Option[String] = None
+            val res = Try(Await.result(Future{data.next()}, processingTODur))
+            match{
+              case _ @ Failure(e) =>
+                e match {
+                  case _:java.util.NoSuchElementException => /*Do Nothing: As we couldn't use hasNext on iterator.*/
+                  case _:java.util.concurrent.TimeoutException => errorMsg = Some(e.getMessage)
+                }
+                None
+              case success @ _ => Some(success.get)
+            }
+            if (errorMsg.isDefined || (System.currentTimeMillis() > limit)) {
+              continue = false
+              ds.markRepoError(owner, repo, err = "Processing timed out after %d sec".format(processingTO), token = token)
+            }
+            res
+          }) // Generate records only under Timeout.
+          .map(y=> {
+            if(y.isEmpty)
+              fs.delete(new Path(git.getRepository.getDirectory.getParentFile.toURI), true)
+            y
+          }) // Clean up repos on None signal
+          .filter(_.isDefined).map(_.get)
       })
       .filter(fht=> metaExtns.isEmpty || metaExtns.contains(scala.reflect.io.File(fht.gitPath).extension))
       .map(x=> (x.owner, x.repo, x.gitPath, x.fileHash, x.commitTime, x.commitId))
