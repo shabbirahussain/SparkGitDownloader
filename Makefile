@@ -13,7 +13,7 @@ AWS_PEM_PATH=~/ssh.pem
 PRL_USER=hshabbir
 PRL_MACHINE=${PRL_USER}@prl1c
 PRL_DB_NAME=hshabbir_reactorlabs
-NUM_WORKERS=40
+NUM_WORKERS=60
 
 # ------------------------------------
 # Do not edit! Local config variables.

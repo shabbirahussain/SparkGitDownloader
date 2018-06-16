@@ -53,7 +53,6 @@ object Main {
   private val processingTODur = Duration.create(processingTO, TimeUnit.SECONDS)
 
 //  private val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(nWorkers))
-  import scala.concurrent.ExecutionContext.Implicits.global
 
   /**
     * @param git is the cloned git repo object to fetch details from.
@@ -135,6 +134,7 @@ object Main {
     if (links.isEmpty()) return false
 
     logger.log(Level.INFO, "Initializing ...")
+    val endRecord: Iterator[Try[FileHashTuple]] = Iterator(Failure(new NoSuchElementException("")))
     val data = links
       .repartition(crawlBatchSize / partitionSize )
       .flatMap(x=> tryCloneRepo(x._1, x._2, token))// Clone git repo
@@ -142,36 +142,24 @@ object Main {
         import scala.concurrent.ExecutionContext.Implicits.global
 
         val (owner, repo) = getRepoOwnership(git)
-        val limit = System.currentTimeMillis() + (processingTO * 1000)
-        val data = tryGetRepoFilesHistory(git, token) // Extract data from it
+        val data = TimedIterator(tryGetRepoFilesHistory(git, token), processingTODur) // Extract data from it
 
-        var continue = true
-        Stream.continually()
-          .takeWhile(_=> continue)
-          .map(_=>{
-            var errorMsg:Option[String] = None
-            val res = Try(Await.result(Future{data.next()}, processingTODur))
-            match{
-              case _ @ Failure(e) =>
-                e match {
-                  case _:java.util.NoSuchElementException => /*Do Nothing: As we couldn't use hasNext on iterator.*/
-                  case _:java.util.concurrent.TimeoutException => errorMsg = Some(e.getMessage)
-                }
-                continue = false
-                None
-              case success @ _ => Some(success.get)
-            }
-            if (errorMsg.isDefined || (System.currentTimeMillis() > limit)) {
-              continue = false
-              ds.markRepoError(owner, repo, err = "Processing timed out after %d sec".format(processingTO), token = token)
-            }
-            res
-          }) // Generate records only under Timeout.
-          .map(y=> {
-            if(y.isEmpty)
+        (data ++ endRecord)
+          .map({
+            case _ @ Failure(e) =>
+              e match {
+                case _:java.util.concurrent.TimeoutException =>
+                  ds.markRepoError(owner, repo, err = e.getMessage, token = token)
+                case _:java.util.NoSuchElementException => /* End record */
+              }
+              None
+            case success @ _ => Some(success.get)
+          })
+          .map(x=> {
+            if(data.isEmpty)
               fs.delete(new Path(git.getRepository.getDirectory.getParentFile.toURI), true)
-            y
-          }) // Clean up repos on None signal
+            x
+          })
           .filter(_.isDefined).map(_.get)
       })
       .filter(fht=> metaExtns.isEmpty || metaExtns.contains(scala.reflect.io.File(fht.gitPath).extension))

@@ -6,14 +6,34 @@ import java.util.concurrent.Executors
 
 import scala.collection.mutable
 import scala.concurrent.{Await, ExecutionContext, ExecutionContextExecutor, Future}
-import scala.concurrent.duration.{Duration, FiniteDuration}
+import scala.concurrent.duration.Duration
 import scala.reflect.runtime.universe._
-import scala.util.Try
+import scala.util.{Failure, Try}
+
+import java.util.concurrent.TimeoutException
 
 /**
   * @author shabbirahussain
   */
 package object util {
+  import scala.concurrent.ExecutionContext.Implicits.global
+
+  case class TimedIterator[A](src : Iterator[A], timeout: Duration)
+    extends Iterator[Try[A]] {
+    private val fail = Failure(new TimeoutException("Iterator timed out after %s".format(timeout.toString)))
+    private def fetchNext(): Try[A] = Try(Await.result(Future{src.next()}, timeout))
+
+    private val limitTime = System.currentTimeMillis() + timeout.toMillis
+    private var _next: Try[A] = fetchNext()
+
+    def hasNext :Boolean = _next.isSuccess
+    def next() : Try[A] = {
+      val res = if (System.currentTimeMillis() > limitTime) fail else _next
+      _next   = if (res.isSuccess) fetchNext() else res
+      res
+    }
+  }
+
   case class ExecutionService[T](solvers: Iterable[() => T], ec: ExecutionContextExecutor)
     extends Iterator[T] {
     private case class Result(f: Future[Result], r: T)
