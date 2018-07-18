@@ -26,12 +26,23 @@ package object util {
     private val limitTime = System.currentTimeMillis() + timeout.toMillis
     private var _next: Try[A] = fetchNext()
 
-    def hasNext :Boolean = _next.isSuccess
+    def hasNext: Boolean = _next.isSuccess
     def next() : Try[A] = {
       val res = if (System.currentTimeMillis() > limitTime) fail else _next
       _next   = if (res.isSuccess) fetchNext() else res
       res
     }
+  }
+
+  case class ExecuteAfterLastElemIterator[A](src : Iterator[A], block: ()=> Unit)
+    extends Iterator[A] {
+    def hasNext: Boolean = {
+      if (!src.hasNext) {
+        block()
+        false
+      } else true
+    }
+    def next() : A = src.next()
   }
 
   case class ExecutionService[T](solvers: Iterable[() => T], ec: ExecutionContextExecutor)

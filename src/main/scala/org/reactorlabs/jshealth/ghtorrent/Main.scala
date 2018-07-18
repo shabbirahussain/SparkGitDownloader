@@ -1,19 +1,16 @@
 package org.reactorlabs.jshealth.ghtorrent
 
 import java.io.File
-import java.nio.file.{Files, Path, Paths}
+import java.nio.file.{Files, Paths}
 import java.nio.file.attribute.PosixFilePermission
 
-import akka.stream.SourceShape
 import org.apache.commons.io.FileUtils
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.log4j.Level
-import org.apache.spark.sql.DataFrame
 import org.reactorlabs.jshealth.Main.{ds, logger, prop, sc, spark}
 import org.reactorlabs.jshealth.models.Languages
 
-import scala.io.Source
 import sys.process._
 import scala.language.postfixOps
 import scala.util.Try

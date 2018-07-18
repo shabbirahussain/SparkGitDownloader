@@ -27,9 +27,16 @@ trait DataStore extends Serializable{
     * @param owner is the owner of the repo.
     * @param repo is the repo name.
     * @param err is the error message to update.
-    * @param token is the token of the process that marked these records.
     */
-  def markRepoError(owner: String, repo: String, err: String, token: Long): Unit
+  def markRepoError(owner: String, repo: String, err: String): Unit
+
+  /** Just logs the error for the repo without blacklisting that repo.
+    *
+    * @param owner is the owner of the repo.
+    * @param repo is the repo name.
+    * @param err is the error message to update.
+    */
+  def logRepoError(owner: String, repo: String, err: String): Unit
 
   /**
     * @param limit is the maximum number of records to fetch.

@@ -1,8 +1,6 @@
 INPUT_COMMAND=git
 
-SPARK_BIN_PATH=
-SCALA_BIN_PATH=
-RUNTIME_JARS=commons-csv-1.5.jar,json-20180130.jar,mysql-connector-java-8.0.9-rc.jar,org.eclipse.jgit-4.8.0.201706111038-r.jar,jsch-0.1.54.jar
+RUNTIME_JARS=commons-csv-1.5.jar,json-20180130.jar,mysql-connector-java-8.0.9-rc.jar,org.eclipse.jgit-5.0.0.201806131550-r.jar,jsch-0.1.54.jar
 #,reactive-streams-1.0.2.jar,jctools-core-2.0.2.jar,config-1.3.3.jar,akka-actor_2.11-2.5.11.jar,akka-stream-experimental_2.11-2.0.5.jar
 #,monix-eval_2.11-3.0.0-8084549.jar,monix-execution_2.11-3.0.0-8084549.jar,monix-reactive_2.11-3.0.0-8084549.jar,cats-core_2.11-1.0.0-RC1.jar,cats-kernel_2.11-1.0.0-RC1.jar,cats-effect_2.11-0.5.jar,monix-tail_2.11-3.0.0-8084549.jar
 
@@ -13,7 +11,7 @@ AWS_PEM_PATH=~/ssh.pem
 PRL_USER=hshabbir
 PRL_MACHINE=${PRL_USER}@prl1c
 PRL_DB_NAME=hshabbir_reactorlabs
-NUM_WORKERS=60
+NUM_WORKERS=*
 
 # ------------------------------------
 # Do not edit! Local config variables.
@@ -43,7 +41,7 @@ build_run: build run
 clean_build: clean install_deps build
 
 build: copy_resources
-	${SCALA_BIN_PATH}scalac -feature -cp "./${LIB_PATH}*" \
+	scalac -feature -cp "./${LIB_PATH}*" \
 		-d ${CLASSES_PATH} \
 		src/main/scala/org/reactorlabs/jshealth/**/*.scala \
 		src/main/scala/org/reactorlabs/jshealth/*.scala
@@ -53,12 +51,12 @@ build: copy_resources
 	rm -rf ${CLASSES_PATH}
 
 run:
-	${SPARK_BIN_PATH}spark-submit \
+	spark-submit \
 		--master local[${NUM_WORKERS}] \
 		--files "${EXTRA_RESOURCES_PATH}conf/config-defaults.properties" \
 		--conf "spark.driver.extraJavaOptions=-Dlog4j.configuration='file:${PWD}${EXTRA_RESOURCES_PATH}conf/log4j.properties'" \
 	 	--jars ${FULL_RUNTIME_JARS} \
-    	--class org.reactorlabs.jshealth.Main "${JAR_NAME}" "${INPUT_COMMAND}" &
+    	--class org.reactorlabs.jshealth.Main "${JAR_NAME}" "${INPUT_COMMAND}"
 
 install_deps:
 	mvn install dependency:copy-dependencies
@@ -95,8 +93,8 @@ setup:
 	brew services start mysql
 
 ss:
-	spark-shell --driver-memory 5G --executor-memory 5G \
-	--master local[50] \
+	spark-shell --driver-memory 300G --executor-memory 300G \
+	--master local[*] \
 	--jars=${FULL_RUNTIME_JARS} \
 	--conf spark.scheduler.mode=FAIR \
 	--conf spark.checkpoint.compress=true

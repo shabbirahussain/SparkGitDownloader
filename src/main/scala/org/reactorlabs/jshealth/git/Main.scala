@@ -7,13 +7,14 @@ import java.util.concurrent.{Executors, TimeUnit}
 import org.apache.log4j.Level
 import org.reactorlabs.jshealth.Main._
 import org.reactorlabs.jshealth.datastores.Keychain
-import org.reactorlabs.jshealth.repomanagers.{GitHubClient, RepoManager}
+import org.reactorlabs.jshealth.repomanagers.{BaseGitHubClient, RepoManager, ResilientGitHubClient}
 import org.reactorlabs.jshealth.util._
 import org.apache.spark.storage.StorageLevel
 import org.eclipse.jgit.api.errors.{InvalidRemoteException, TransportException}
-import org.reactorlabs.jshealth.models.{FileHashTuple, Schemas}
+import org.reactorlabs.jshealth.models.{CommitMessageRecord, FileMetadataRecord, Schemas}
 import org.apache.hadoop.fs.Path
 import org.eclipse.jgit.api.Git
+import org.eclipse.jgit.revwalk.RevCommit
 
 import scala.collection.JavaConversions._
 import scala.concurrent.duration.Duration
@@ -32,94 +33,63 @@ object Main {
 //  private val nWorkers        = prop.getProperty("git.downloader.numworkers").toInt
   private val processingTO = prop.getProperty("git.downloader.processing.timeout.sec").toLong
   private val partitionSize   = prop.getProperty("git.downloader.partition.size").toInt
-  private val genDataFor      = prop.getProperty("git.generate.data.for")
-    .toUpperCase.split(",").map(_.trim)
-    .toSet
-    .map(Schemas.withName)
   private val gitPath    = {
     var cloningTempDir = prop.getProperty("git.downloader.cloning.temp.dir")
     if (cloningTempDir == null)
       cloningTempDir = sc.hadoopConfiguration.get("hadoop.tmp.dir", "/tmp") + "/repos/"
     new File( "%s%d".format(cloningTempDir, System.currentTimeMillis()))
   }
-  private val cloningTimeout  = prop.getProperty("git.downloader.cloning.timeout.sec").toInt
-  private val gitClient : RepoManager = new GitHubClient(
-      keychain   = keychain,
+  private val gitClient : RepoManager = {
+    val cloningTimeout  = prop.getProperty("git.downloader.cloning.timeout.sec").toInt
+    val timeout = Duration.create(processingTO, TimeUnit.SECONDS)
+    val base = BaseGitHubClient(
+      keychain      = keychain,
       workingGitDir = gitPath.toPath.toAbsolutePath.toString,
       cloningTimeout
-  )
-
-  private val cloningTimeoutDur = Duration.create(cloningTimeout, TimeUnit.SECONDS)
-  private val processingTODur = Duration.create(processingTO, TimeUnit.SECONDS)
-
-//  private val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(nWorkers))
-
-  /**
-    * @param git is the cloned git repo object to fetch details from.
-    * @return Owner of the repo and repository name.
-    */
-  private def getRepoOwnership(git: Git): (String, String) = {
-    val dir = git.getRepository.getDirectory.getParentFile
-    (dir.getParentFile.getName, dir.getName)
+    )
+    ResilientGitHubClient(base, ds, timeout, nwRetry = 3)
   }
 
-  /** Clones the repo using a github client. If unsuccessful marks error in the database and returns empty.
-    *
-    * @param owner is the owner of the repository.
-    * @param repo is the repository name.
-    * @param token is the token id of the process.
-    * @return A single element seq of Git object if successful.
-    */
-  private def tryCloneRepo(owner: String, repo: String, token: Long)
-  : Iterator[Git] = {
-    Try({
-      gitClient.gitCloneRepo(owner = owner, repo = repo)
-    })
-    match {
-      case _ @ Failure(e) =>
-        ds.markRepoError(owner, repo, err = e.getMessage, token = token)
-        Iterator.empty
-      case success @ _ => Iterator(success.get)
-    }
-  }
 
-  /** Tries to get file history from the git repository.
-    *
-    * @param git is the cloned git repo object to fetch history from.
-    * @param token is the token id of the process.
-    * @return A seq of FileHashTuples.
-    */
-  private def tryGetRepoFilesHistory(git: Git, token: Long)
-  : Iterator[FileHashTuple] = {
-    val (owner, repo) = getRepoOwnership(git)
-    Try({
-      gitClient.getRepoFilesHistory(git)
-    })
-    match {
-      case _@Failure(e) =>
-        ds.markRepoError(owner, repo, err = e.getMessage, token = token)
-        Iterator.empty
-      case success@_ => success.get
-    }
-  }
 
-  /** Tries to fetch contents form the cloned github repo. Returns only the 'UTF-8' string contents.
+  /** Crawls the files from the frontier queue and stores commit history back to database.
     *
-    * @param objectId is the id of the object to fetch contents from.
-    * @param git is the cloned git repository object.
-    * @param token is the token id of the process.
-    * @return Seq of just one element tuple containing fileHash and UTF-8 String contents if successful.
+    * @return status if current sprint had any files to work on.
     */
-  private def tryGetFileContents(objectId: String, git: Git, token: Long)
-  : Seq[(String, String)] = {
-    val (owner, repo) = getRepoOwnership(git)
-    Try((objectId, new String(gitClient.getFileContents(git, objectId),"UTF-8")))
-    match {
-      case _ @ Failure(e) =>
-        ds.markRepoError(owner, repo, err = e.getMessage, token = token)
-        Seq.empty
-      case success @ _ => Seq(success.get)
-    }
+  def crawlCommitMessages()
+  : Boolean = {
+    logger.log(Level.INFO, "\n\n\nChecking out links ...")
+    val (links, token) = ds.checkoutReposToCrawl(crawlBatchSize)
+    links.persist(StorageLevel.DISK_ONLY)
+    if (links.isEmpty()) return false
+
+    logger.log(Level.INFO, "Initializing ...")
+    val data = links
+      .repartition(crawlBatchSize / partitionSize )
+      // Clone git repo
+      .flatMap(x=> gitClient
+        .cloneRepo(x._1, x._2)
+        .flatMap {
+          case _@Failure(_) => Iterator.empty
+          case success@_ => {
+            val git = success.get
+            def cleanUpRepo(): Unit = fs.delete(new Path(git.getRepository.getDirectory.getParentFile.toURI), true)
+
+            gitClient.getAllCommits(git)
+            match {
+              case _@Failure(_) => Iterator.empty
+              case success@_ =>
+                ExecuteAfterLastElemIterator(success.get, cleanUpRepo)
+
+            }
+          }
+        }).toDF()
+    ds.storeRecords(data, folder = "%d/%s".format(token, Schemas.COMMIT_MESSAGES))
+    fs.delete(new Path(gitPath.toURI), true)
+
+    ds.markRepoCompleted(links.map(x=> (x._1, x._2)), token)
+    links.unpersist(blocking = false)
+    true
   }
 
   /** Crawls the files from the frontier queue and stores commit history back to database.
@@ -134,37 +104,29 @@ object Main {
     if (links.isEmpty()) return false
 
     logger.log(Level.INFO, "Initializing ...")
-    val endRecord: Iterator[Try[FileHashTuple]] = Iterator(Failure(new NoSuchElementException("")))
     val data = links
       .repartition(crawlBatchSize / partitionSize )
-      .flatMap(x=> tryCloneRepo(x._1, x._2, token))// Clone git repo
-      .flatMap(git=> {
-        import scala.concurrent.ExecutionContext.Implicits.global
+      // Clone git repo
+      .flatMap(x=> gitClient
+        .cloneRepo(x._1, x._2)
+        .flatMap {
+          case _@Failure(_) => Iterator.empty
+          case success@_ =>
+            val git = success.get
+            def cleanUpRepo(): Unit = fs.delete(new Path(git.getRepository.getDirectory.getParentFile.toURI), true)
 
-        val (owner, repo) = getRepoOwnership(git)
-        val data = TimedIterator(tryGetRepoFilesHistory(git, token), processingTODur) // Extract data from it
+            gitClient.getAllRevCommits(git)
+            match {
+              case _@Failure(_) => Iterator.empty
+              case success@_ =>
+                val commits = ExecuteAfterLastElemIterator(success.get, cleanUpRepo)
 
-        (data ++ endRecord)
-          .map({
-            case _ @ Failure(e) =>
-              e match {
-                case _:java.util.concurrent.TimeoutException =>
-                  ds.markRepoError(owner, repo, err = e.getMessage, token = token)
-                case _:java.util.NoSuchElementException => /* End record */
-              }
-              None
-            case success @ _ => Some(success.get)
-          })
-          .map(x=> {
-            if(data.isEmpty)
-              fs.delete(new Path(git.getRepository.getDirectory.getParentFile.toURI), true)
-            x
-          })
-          .filter(_.isDefined).map(_.get)
-      })
-      .filter(fht=> metaExtns.isEmpty || metaExtns.contains(scala.reflect.io.File(fht.gitPath).extension))
-      .map(x=> (x.owner, x.repo, x.gitPath, x.fileHash, x.commitTime, x.commitId))
-      .toDF(Schemas.asMap(Schemas.FILE_METADATA)._3:_*)
+                gitClient
+                  .getRepoFilesHistory(git, commits)
+                  .filter(_.isSuccess).map(_.get)
+                  .filter(x=> metaExtns.isEmpty || metaExtns.contains(scala.reflect.io.File(x.git_path).extension))
+            }
+      }).toDF()
     ds.storeRecords(data, folder = "%d/%s".format(token, Schemas.FILE_METADATA))
     fs.delete(new Path(gitPath.toURI), true)
 
@@ -172,6 +134,7 @@ object Main {
     links.unpersist(blocking = false)
     true
   }
+
 
   /** Crawls the files from the frontier queue and stores commit history back to database.
     *
@@ -191,7 +154,8 @@ object Main {
 
     var continue = false
     do{
-      continue = crawlFileHistory()
-    } while(continue)
+//      continue = crawlFileHistory()
+      continue = crawlCommitMessages()
+    } while(!continue)
   }
 }

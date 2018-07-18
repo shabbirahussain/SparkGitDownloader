@@ -95,7 +95,7 @@ class LocalStore extends DataStore {
         """.stripMargin.format(token, escapeSql(row._1), escapeSql(row._2))
       ), autoCommit = true)
   }
-  override def markRepoError(owner: String, repo: String, err: String, token: Long)
+  override def markRepoError(owner: String, repo: String, err: String)
   : Unit = {
     var errStr = escapeSql(err)
     errStr = errStr.substring(0, math.min(errStr.length, 254))
@@ -110,6 +110,11 @@ class LocalStore extends DataStore {
         """.stripMargin.format(errStr, escapeSql(owner), escapeSql(repo))
       ), autoCommit = true)
   }
+
+  override def logRepoError(owner: String, repo: String, err: String): Unit = {
+    // TODO: Implement
+  }
+
   override def checkoutReposToCrawl(limit: Int = 1000)
   : (RDD[(String, String)], Long) = {
     val token = System.currentTimeMillis()
