@@ -12,6 +12,7 @@ import org.apache.spark.sql.{SQLContext, SparkSession}
 import org.reactorlabs.jshealth.datastores.{DataStore, LocalStore}
 
 import scala.io.Source
+import scala.util.Try
 
 /**
   * @author shabbirahussain
@@ -30,17 +31,15 @@ object Main extends Serializable {
 
   val prop: Properties = new Properties()
   try {
-//        ClassLoader
-//          .getSystemClassLoader
-//          .asInstanceOf[URLClassLoader]
-//          .getURLs
-//          .foreach(x=> println(x.getFile))
-
-    val path = SparkFiles.get("config-defaults.properties")
-    val stream = new FileInputStream(path) //this.getClass.getClassLoader.getResourceAsStream(path)
+    val stream = new FileInputStream(SparkFiles.get("config-defaults.properties"))
     prop.load(stream)
-
     stream.close()
+
+    Try { // Try to load env specific properties file.
+      val stream = new FileInputStream(SparkFiles.get("config.properties"))
+      prop.load(stream)
+      stream.close()
+    }
   } catch { case e: Exception => e.printStackTrace(); sys.exit(1)}
 
   val hconf = sc.hadoopConfiguration

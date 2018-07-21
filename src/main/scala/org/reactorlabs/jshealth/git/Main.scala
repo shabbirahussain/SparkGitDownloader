@@ -156,6 +156,6 @@ object Main {
     do{
 //      continue = crawlFileHistory()
       continue = crawlCommitMessages()
-    } while(!continue)
+    } while(continue)
   }
 }
